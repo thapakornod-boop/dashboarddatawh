@@ -19,6 +19,11 @@ type SortKey = 'giv' | 'niv' | 'target' | 'givPct' | 'be' | 'bePct' | 'prevNIV' 
 
 const COMPANIES = ['SDO', 'PDC', 'DC'];
 
+const SORT_OPTIONS: [SortKey, string][] = [
+  ['giv', 'GIV'], ['niv', 'NIV'], ['target', 'Target'], ['givPct', '% GIV/Target'],
+  ['be', 'BE'], ['bePct', '% BE/Target'], ['prevNIV', 'NIV ปีก่อน'], ['growth', 'Growth NIV'],
+];
+
 function fmtNum(n: number | null | undefined) {
   if (n == null) return '-';
   return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -170,13 +175,31 @@ export default function SellerTable({
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+          {/* มือถือไม่มีหัวตารางให้กด จึงเลือกการเรียงจาก dropdown แทน */}
+          <select
+            className="tbl-select sl-sort-mobile"
+            value={`${sort.key}|${sort.desc ? 'desc' : 'asc'}`}
+            onChange={(e) => {
+              const [key, dir] = e.target.value.split('|');
+              setSort({ key: key as SortKey, desc: dir === 'desc' });
+            }}
+            aria-label="เรียงตาม"
+          >
+            {SORT_OPTIONS.map(([key, label]) => (
+              <optgroup key={key} label={label}>
+                <option value={`${key}|desc`}>{label} มาก → น้อย</option>
+                <option value={`${key}|asc`}>{label} น้อย → มาก</option>
+              </optgroup>
+            ))}
+          </select>
           <span className="tbl-count">{filteredRows.length} คน</span>
           <button type="button" className="tbl-btn" onClick={() => downloadCsv(filteredRows, fileTag)}>⬇ CSV</button>
         </div>
       </div>
 
       {filteredRows.length > 0 ? (
-        <table style={{ marginTop: 8 }}>
+        <>
+        <table className="sl-table" style={{ marginTop: 8 }}>
           <thead>
             <tr>
               <th style={{ width: 40 }}>#</th>
@@ -235,6 +258,52 @@ export default function SellerTable({
             </tr>
           </tfoot>
         </table>
+
+        {/* ── มือถือ: แสดงเป็นการ์ดรายคนแทนตาราง ── */}
+        <div className="sl-cards">
+          <div className="sl-card sl-total">
+            <div className="sl-card-head">
+              <span className="sl-seller">รวม {filteredRows.length} คน</span>
+              <span className="sl-badge" style={{ color: achieveColor(pctOf(totals.giv, totals.target)) }}>
+                {fmtPct(pctOf(totals.giv, totals.target))} ของ Target
+              </span>
+            </div>
+            <div className="sl-grid">
+              <div><span>GIV</span><b>{fmtNum(totals.giv)}</b></div>
+              <div><span>NIV</span><b>{fmtNum(totals.niv)}</b></div>
+              <div><span>Target</span><b>{fmtNum(totals.target)}</b></div>
+              <div><span>BE</span><b>{fmtNum(totals.be)}</b></div>
+            </div>
+          </div>
+          {filteredRows.map((row, i) => {
+            const givPct = pctOf(row.giv, row.target);
+            const bePct = pctOf(row.be, row.target);
+            const rg = hasPrev ? pctGrowth(row.niv, row.prevNIV) : null;
+            const rankCls = i === 0 ? 'rank r1' : i === 1 ? 'rank r2' : i === 2 ? 'rank r3' : 'rank';
+            return (
+              <div className="sl-card" key={`${row.company}|${row.seller}`}>
+                <div className="sl-card-head">
+                  <span className={rankCls}>{i + 1}</span>
+                  <div className="sl-who">
+                    <span className="sl-seller">{row.seller}</span>
+                    <span className="sl-meta">{row.company} · {row.princ || '-'}</span>
+                  </div>
+                  <span className="sl-badge" style={{ color: achieveColor(givPct) }}>{fmtPct(givPct)}</span>
+                </div>
+                <div className="sl-bar"><div style={{ width: `${Math.min(givPct ?? 0, 100)}%`, background: achieveColor(givPct) }} /></div>
+                <div className="sl-grid">
+                  <div><span>GIV</span><b>{fmtNum(row.giv)}</b></div>
+                  <div><span>NIV</span><b>{fmtNum(row.niv)}</b></div>
+                  <div><span>Target</span><b>{row.target ? fmtNum(row.target) : '–'}</b></div>
+                  <div><span>BE · {fmtPct(bePct)}</span><b>{row.be ? fmtNum(row.be) : '–'}</b></div>
+                  <div><span>NIV ปีก่อน</span><b className="dim">{hasPrev ? fmtNum(row.prevNIV) : '–'}</b></div>
+                  <div><span>Growth NIV</span><b style={{ color: rg == null ? '#A2ABBD' : rg >= 0 ? '#16A34A' : '#DC2626' }}>{growthArrow(rg)}</b></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        </>
       ) : (
         <div className="empty-note">ไม่พบข้อมูลตามเงื่อนไขที่เลือก</div>
       )}

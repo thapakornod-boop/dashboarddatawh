@@ -486,72 +486,95 @@ function DonutChart({
   );
 }
 
-// ── การ์ดเทียบปีก่อน (แนวตั้ง: ปีนี้ / ปีก่อน / ส่วนต่าง / เติบโต) ─────
-function CompareCard({
-  label, sub, accent, cur, prev, hasPrev, prevLabel,
+// ── ตารางสรุป: GIV / NIV · เทียบปีก่อน · เทียบ Target / BE (Target / BE ในชีตเป็นยอด GIV) ──
+function PctBar({ pct, color }: { pct: number | null; color: string }) {
+  return (
+    <span className="sum-pct">
+      <b style={{ color }}>{fmtPct(pct)}</b>
+      <span className="sum-bar"><div style={{ width: `${Math.min(pct ?? 0, 100)}%`, background: color }} /></span>
+    </span>
+  );
+}
+
+function GrowthPill({ pct }: { pct: number | null }) {
+  return (
+    <span className="sum-growth" style={{ color: growthColor(pct), background: pct == null ? '#F1F4FA' : pct >= 0 ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.1)' }}>
+      {growthArrow(pct)}
+    </span>
+  );
+}
+
+// ยอดที่ยังขาด (บวก) หรือเกินแล้ว
+function fmtGap(goal: number, actual: number) {
+  if (!goal) return '–';
+  const gap = goal - actual;
+  return gap > 0 ? `ขาดอีก ${fmtNum(gap)}` : `เกินแล้ว ${fmtNum(-gap)}`;
+}
+
+function SummaryTable({
+  cur, prev, hasPrev, prevLabel, target, be, note,
 }: {
-  label: string; sub: string; accent: string;
-  cur: number; prev: number; hasPrev: boolean; prevLabel: string;
+  cur: { GIV: number; NIV: number }; prev: { GIV: number; NIV: number };
+  hasPrev: boolean; prevLabel: string; target: number; be: number; note: string | null;
 }) {
-  const g = hasPrev ? pctGrowth(cur, prev) : null;
+  const metrics = [
+    { key: 'GIV' as const, desc: 'ยอดก่อนหักส่วนลด', color: '#16A34A' },
+    { key: 'NIV' as const, desc: 'ยอดสุทธิ', color: '#2563EB' },
+  ];
   return (
-    <div className="cmp-card" style={{ '--cmp-accent': accent } as React.CSSProperties}>
-      <div className="cmp-head">
-        <span className="cmp-title">{label}</span>
-        <span className="cmp-sub">{sub}</span>
+    <div className="sum-card">
+      <div className="sum-scroll">
+        <table className="sum-table">
+          <thead>
+            <tr>
+              <th>ยอดขาย (บาท)</th>
+              <th>ปีนี้</th>
+              <th className="grp-prev">ปีก่อน · {prevLabel}</th>
+              <th className="grp-prev">เติบโต (YoY)</th>
+              <th className="grp-target">Target</th>
+              <th className="grp-target">% ถึง Target</th>
+              <th className="grp-target">BE (คาดการณ์)</th>
+              <th className="grp-target">% BE / Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map((m) => (
+              <tr key={m.key}>
+                <td>
+                  <div className="sum-metric">
+                    <span className="sum-dot" style={{ background: m.color }} />
+                    <div>
+                      <div className="sum-name" style={{ color: m.color }}>{m.key}</div>
+                      <div className="sum-desc">{m.desc}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="num big">{fmtNum(cur[m.key])}</td>
+                <td className={hasPrev ? 'num' : 'num muted'}>{hasPrev ? fmtNum(prev[m.key]) : 'ยังไม่มีข้อมูล'}</td>
+                <td className="num"><GrowthPill pct={hasPrev ? pctGrowth(cur[m.key], prev[m.key]) : null} /></td>
+                {m.key === 'GIV' ? (
+                  <>
+                    <td className="num grp-target">{target ? fmtNum(target) : '–'}</td>
+                    <td className="num grp-target"><PctBar pct={target ? (cur.GIV / target) * 100 : null} color="#16A34A" /></td>
+                    <td className="num grp-target">{be ? fmtNum(be) : '–'}</td>
+                    <td className="num grp-target"><PctBar pct={target ? (be / target) * 100 : null} color="#D97706" /></td>
+                  </>
+                ) : (
+                  <td colSpan={4} className="num muted grp-target">Target / BE ตั้งเป็นยอด GIV</td>
+                )}
+              </tr>
+            ))}
+            <tr className="sum-gap">
+              <td colSpan={4}>GIV เทียบเป้า</td>
+              <td colSpan={2} className="num">{fmtGap(target, cur.GIV)}</td>
+              <td colSpan={2} className="num">{fmtGap(be, cur.GIV)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <div className="cmp-main">{fmtNum(cur)}</div>
-      <div className="cmp-unit">บาท</div>
-      <div className="cmp-lines">
-        <div className="cmp-line">
-          <span>ปีก่อน · {prevLabel}</span>
-          <b className={hasPrev ? '' : 'muted'}>{hasPrev ? fmtNum(prev) : 'ยังไม่มีข้อมูล'}</b>
-        </div>
-        <div className="cmp-line">
-          <span>ส่วนต่าง</span>
-          <b style={{ color: hasPrev ? growthColor(cur - prev) : undefined }} className={hasPrev ? '' : 'muted'}>
-            {hasPrev ? `${cur - prev >= 0 ? '+' : ''}${fmtNum(cur - prev)}` : '–'}
-          </b>
-        </div>
-        <div className="cmp-line">
-          <span>เติบโต (YoY)</span>
-          <span className="cmp-growth" style={{ color: growthColor(g), background: g == null ? '#F1F4FA' : g >= 0 ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.1)' }}>
-            {growthArrow(g)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProgressLine({ label, pct, color }: { label: string; pct: number | null; color: string }) {
-  return (
-    <div className="prog">
-      <div className="prog-top"><span>{label}</span><b style={{ color }}>{fmtPct(pct)}</b></div>
-      <div className="prog-bg"><div className="prog-fill" style={{ width: `${Math.min(pct ?? 0, 100)}%`, background: color }} /></div>
-    </div>
-  );
-}
-
-// ── การ์ด Target / BE ──────────────────────────────────────────────
-function TargetCard({
-  target, be, giv, note,
-}: { target: number; be: number; giv: number; note: string | null }) {
-  const givPct = target ? (giv / target) * 100 : null;
-  const bePct  = target ? (be / target) * 100 : null;
-  return (
-    <div className="cmp-card" style={{ '--cmp-accent': '#D97706' } as React.CSSProperties}>
-      <div className="cmp-head">
-        <span className="cmp-title">Target / BE</span>
-        <span className="cmp-sub">จาก Google Sheet (BEST - Estimate)</span>
-      </div>
-      <div className="cmp-main">{target ? fmtNum(target) : '–'}</div>
-      <div className="cmp-unit">Target (บาท)</div>
-      <div className="cmp-lines">
-        <div className="cmp-line"><span>BE (คาดการณ์)</span><b>{be ? fmtNum(be) : '–'}</b></div>
-        <ProgressLine label="GIV เทียบ Target" pct={givPct} color="#16A34A" />
-        <ProgressLine label="BE เทียบ Target" pct={bePct} color="#D97706" />
-        {note && <div className="cmp-note">{note}</div>}
+      <div className="sum-foot">
+        <span>Target / BE จาก Google Sheet (BEST - Estimate)</span>
+        {note && <span className="warn">⚠ {note}</span>}
       </div>
     </div>
   );
@@ -771,33 +794,30 @@ export default async function SalesOverviewPage({
         .sec-label-text { font-size: 11px; font-weight: 800; color: #8A93A6; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
         .sec-label::before, .sec-label::after { content: ''; flex: 1; height: 1px; background: #E7ECF5; }
 
-        /* ── การ์ดเทียบปีก่อน (แนวตั้ง) ── */
-        .cmp-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
-        @media (max-width: 1000px) { .cmp-row { grid-template-columns: 1fr; } }
-        .cmp-card {
-          background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; padding: 20px 22px;
-          position: relative; overflow: hidden; box-shadow: 0 4px 16px rgba(26,37,64,0.05); min-width: 0;
-        }
-        .cmp-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--cmp-accent); }
-        .cmp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-        .cmp-title { font-size: 15px; font-weight: 800; color: var(--cmp-accent); }
-        .cmp-sub { font-size: 11px; color: #A2ABBD; }
-        .cmp-main {
-          font-size: clamp(20px, 2.3vw, 28px); font-weight: 800; color: #1A2540;
-          font-variant-numeric: tabular-nums; letter-spacing: -0.4px; line-height: 1.15; overflow-wrap: anywhere;
-        }
-        .cmp-unit { font-size: 11px; color: #A2ABBD; margin-top: 4px; }
-        .cmp-lines { margin-top: 14px; border-top: 1px dashed #E7ECF5; padding-top: 10px; display: flex; flex-direction: column; gap: 9px; }
-        .cmp-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; color: #5B6478; }
-        .cmp-line b { font-variant-numeric: tabular-nums; color: #1A2540; font-weight: 700; text-align: right; }
-        .cmp-line b.muted { color: #A2ABBD; font-weight: 600; }
-        .cmp-growth { font-weight: 800; font-size: 13px; padding: 3px 10px; border-radius: 99px; font-variant-numeric: tabular-nums; }
-        .cmp-note { font-size: 11px; color: #B45309; background: rgba(217,119,6,0.08); border-radius: 8px; padding: 6px 10px; }
-        .prog { display: flex; flex-direction: column; gap: 5px; }
-        .prog-top { display: flex; justify-content: space-between; font-size: 12.5px; color: #5B6478; }
-        .prog-top b { font-variant-numeric: tabular-nums; }
-        .prog-bg { height: 6px; background: #EEF1F7; border-radius: 99px; overflow: hidden; }
-        .prog-fill { height: 100%; border-radius: 99px; }
+        /* ── ตารางสรุป GIV / NIV · ปีก่อน · Target / BE ── */
+        .sum-card { background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; box-shadow: 0 4px 16px rgba(26,37,64,0.05); margin-bottom: 14px; overflow: hidden; }
+        .sum-scroll { overflow-x: auto; }
+        table.sum-table { min-width: 860px; font-size: 13.5px; }
+        .sum-table thead th { text-align: right; }
+        .sum-table thead th:first-child { text-align: left; }
+        .sum-table thead th.grp-prev { color: #A2ABBD; }
+        .sum-table thead th.grp-target { color: #B45309; background: #FFFBF3; }
+        .sum-table td.grp-target { background: #FFFDF8; }
+        .sum-table tbody td { padding: 14px; }
+        .sum-table td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+        .sum-table td.big { font-size: 17px; font-weight: 800; }
+        .sum-table td.muted { color: #A2ABBD; font-weight: 600; font-size: 12.5px; }
+        .sum-metric { display: flex; align-items: center; gap: 10px; }
+        .sum-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+        .sum-name { font-weight: 800; font-size: 14px; }
+        .sum-desc { font-size: 11px; color: #A2ABBD; }
+        .sum-pct { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 5px; min-width: 90px; }
+        .sum-bar { width: 90px; height: 5px; background: #EEF1F7; border-radius: 99px; overflow: hidden; }
+        .sum-bar > div { height: 100%; border-radius: 99px; }
+        .sum-growth { font-weight: 800; font-size: 12.5px; padding: 3px 10px; border-radius: 99px; }
+        .sum-gap td { background: #FAFBFD; color: #5B6478; font-size: 12.5px; }
+        .sum-foot { display: flex; gap: 8px 16px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid #EFF2F8; font-size: 11.5px; color: #A2ABBD; }
+        .sum-foot .warn { color: #B45309; }
 
         .chart-strip-1 { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 14px; }
         .chart-strip-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
@@ -862,6 +882,31 @@ export default async function SalesOverviewPage({
         .rank.r3 { background: rgba(180,83,9,0.16); color: #92400E; }
         tfoot td { padding: 12px 14px; font-weight: 700; background: #F8FAFD !important; border-top: 1px solid rgba(37,99,235,0.3); color: #1A2540; white-space: nowrap; }
         tfoot td.r { text-align: right; color: #2563EB; font-family: monospace; font-size: 12.5px; }
+
+        /* ── ยอดขายรายคน: จอเล็กเปลี่ยนจากตารางเป็นการ์ด ── */
+        .sl-cards, .sl-sort-mobile { display: none; }
+        @media (max-width: 760px) {
+          table.sl-table { display: none; }
+          .sl-cards { display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 16px; }
+          .sl-sort-mobile { display: block; }
+          .tbl-header { padding: 14px 12px 0; }
+          .tbl-tools, .tbl-tools .th-search { width: 100%; }
+          .tbl-tools .pills { flex-wrap: wrap; }
+        }
+        .sl-card { border: 1px solid #E7ECF5; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: #FFFFFF; }
+        .sl-card.sl-total { background: #F4F8FF; border-color: rgba(37,99,235,0.25); }
+        .sl-card-head { display: flex; align-items: center; gap: 10px; }
+        .sl-who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+        .sl-seller { font-weight: 800; color: #2563EB; font-size: 14px; flex: 1; }
+        .sl-meta { font-size: 11.5px; color: #8A93A6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sl-badge { font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .sl-bar { height: 5px; background: #EEF1F7; border-radius: 99px; overflow: hidden; }
+        .sl-bar > div { height: 100%; border-radius: 99px; }
+        .sl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+        .sl-grid > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .sl-grid span { font-size: 10.5px; color: #8A93A6; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+        .sl-grid b { font-size: 13px; font-variant-numeric: tabular-nums; color: #1A2540; overflow-wrap: anywhere; }
+        .sl-grid b.dim { color: #A2ABBD; }
 
         .error-box { background: rgba(220,38,38,0.06); border-left: 3px solid #DC2626; border-radius: 12px; padding: 14px 18px; color: #B91C1C; font-size: 13px; margin-bottom: 20px; }
         .empty-note { color: #A2ABBD; text-align: center; padding: 32px; font-size: 14px; }
@@ -958,13 +1003,10 @@ export default async function SalesOverviewPage({
                 <div className="view-overview">
                   {/* ─── สรุปยอด: GIV / NIV เทียบปีก่อน + Target / BE ───── */}
                   <div className="sec-label"><span className="sec-label-text">📅 สรุปยอดขาย · {rangeLabel}{companyFilter !== 'all' ? ` · ${companyFilter}` : ''}</span></div>
-                  <div className="cmp-row">
-                    <CompareCard label="GIV" sub="ยอดก่อนหักส่วนลด" accent="#16A34A"
-                      cur={grandCurrent.GIV} prev={grandPrevious.GIV} hasPrev={hasPrev} prevLabel={prevRangeLabel} />
-                    <CompareCard label="NIV" sub="ยอดสุทธิ" accent="#2563EB"
-                      cur={grandCurrent.NIV} prev={grandPrevious.NIV} hasPrev={hasPrev} prevLabel={prevRangeLabel} />
-                    <TargetCard target={grandTarget.target} be={grandTarget.be} giv={grandCurrent.GIV} note={targetNote} />
-                  </div>
+                  <SummaryTable
+                    cur={grandCurrent} prev={grandPrevious} hasPrev={hasPrev} prevLabel={prevRangeLabel}
+                    target={grandTarget.target} be={grandTarget.be} note={targetNote}
+                  />
 
                   {/* ─── แนวโน้มยอดขาย ────────────────────────────── */}
                   <div className="chart-strip-1">
