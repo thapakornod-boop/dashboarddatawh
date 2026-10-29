@@ -75,13 +75,13 @@ function getCurrentYM(): string {
 }
 
 // "2026-08-31" + 1 วัน → "2026-09-01" (RPC ใช้ช่วง [from, to) )
-function addDays(date: string, days: number): string {
+export function addDays(date: string, days: number): string {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 // ย้อนปี โดย 29 ก.พ. → 28 ก.พ.
-function shiftYears(date: string, years: number): string {
+export function shiftYears(date: string, years: number): string {
   const [y, m, d] = date.split('-').map(Number);
   const lastDay = new Date(Date.UTC(y - years, m, 0)).getUTCDate();
   return new Date(Date.UTC(y - years, m - 1, Math.min(d, lastDay))).toISOString().slice(0, 10);
@@ -97,10 +97,31 @@ type SellerRpcRow = {
   niv: number | string;
 };
 
-async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T[]> {
+function supabaseHeaders() {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
     throw new Error('ยังไม่ได้ตั้งค่า SUPABASE_URL / SUPABASE_SECRET_KEY ใน .env.local');
   }
+  return {
+    apikey: SUPABASE_SECRET_KEY,
+    Authorization: `Bearer ${SUPABASE_SECRET_KEY}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+// RPC ที่คืนค่าเดียว (ไม่ใช่ตาราง) เช่น dashboard_latest_date / dashboard_sales
+async function rpcScalar<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: supabaseHeaders(),
+    body: JSON.stringify(args),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Supabase ${fn}: ${res.status} ${await res.text()}`);
+  return (await res.json()) as T;
+}
+
+export async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T[]> {
+  const headers = supabaseHeaders();
   // PostgREST ส่งได้ครั้งละ 1000 แถว จึงไล่หน้าจนหมด
   const out: T[] = [];
   for (let offset = 0; ; offset += 1000) {
@@ -108,11 +129,7 @@ async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T[]> {
       `${SUPABASE_URL}/rest/v1/rpc/${fn}?limit=1000&offset=${offset}`,
       {
         method: 'POST',
-        headers: {
-          apikey: SUPABASE_SECRET_KEY,
-          Authorization: `Bearer ${SUPABASE_SECRET_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(args),
         // ไม่ cache — ไม่งั้นค่าว่าง/ค่าเก่าจะค้าง (ตารางสรุปอัปเดตทุกชั่วโมงอยู่แล้ว)
         cache: 'no-store',
@@ -123,6 +140,59 @@ async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T[]> {
     out.push(...page);
     if (page.length < 1000) return out;
   }
+}
+
+// อ่านตารางตรง ๆ เช่น "seller_principal?select=seller,principal"
+export async function selectTable<T>(query: string): Promise<T[]> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${query}`, {
+    headers: supabaseHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Supabase ${query}: ${res.status} ${await res.text()}`);
+  return (await res.json()) as T[];
+}
+
+// cache ในหน่วยความจำ 5 นาที — ตารางสรุปอัปเดตทุกชั่วโมงอยู่แล้ว
+// เปิดซ้ำ / เปลี่ยน filter ไปมาจะไม่ต้องยิง Supabase ใหม่ทุกครั้ง (เก็บ Promise กันยิงซ้ำตอนโหลดพร้อมกัน)
+const CACHE_MS = 5 * 60 * 1000;
+const memo = new Map<string, { at: number; value: Promise<unknown> }>();
+
+function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value as Promise<T>;
+  const value = load();
+  memo.set(key, { at: Date.now(), value });
+  value.catch(() => memo.delete(key)); // error ไม่ต้องจำ
+  return value;
+}
+
+// วันที่เอกสารล่าสุดในตารางสรุป เช่น "2026-10-29"
+export function getLatestDate(): Promise<string> {
+  return cached('latest', async () => {
+    const latest = await rpcScalar<string | null>('dashboard_latest_date', {});
+    if (!latest) throw new Error('ไม่พบข้อมูลใน sales_summary_daily');
+    return latest;
+  });
+}
+
+// เดือนที่มีข้อมูลจริง (เก่า → ใหม่) ไว้ทำตัวเลือก filter
+// ตัดเดือนที่มีแค่เอกสารหลงมาไม่กี่ใบ (ยอด < 1% ของเดือนที่สูงสุด) เช่น 2025-01 ที่มี 587 บาท
+export function getAvailableMonths(): Promise<string[]> {
+  return cached('months', loadAvailableMonths);
+}
+
+async function loadAvailableMonths(): Promise<string[]> {
+  // p_to = ต้นเดือนหน้า ไม่ต้องรอ getLatestDate ก่อน
+  const now = new Date();
+  const res = await rpcScalar<{ byMonth: { ym: string; giv: number }[] }>('dashboard_sales', {
+    p_from: '2024-01-01',
+    p_to: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10),
+  });
+  const max = Math.max(...res.byMonth.map((m) => Math.abs(Number(m.giv))), 0);
+  return res.byMonth
+    .filter((m) => Math.abs(Number(m.giv)) >= max * 0.01)
+    .map((m) => m.ym)
+    .sort();
 }
 
 function buildBlock(rows: SellerRpcRow[], startDate: string, endDate: string): LG014SummaryBlock {
@@ -170,10 +240,9 @@ async function fetchBlock(startDate?: string, endDate?: string): Promise<LG014Su
   const range = monthToRange(getCurrentYM());
   const from = startDate ?? range.startDate;
   const to = endDate ?? range.endDate;
-  const rows = await rpc<SellerRpcRow>('dashboard_sales_by_seller', {
-    p_from: from,
-    p_to: addDays(to, 1),
-  });
+  const rows = await cached(`seller|${from}|${to}`, () =>
+    rpc<SellerRpcRow>('dashboard_sales_by_seller', { p_from: from, p_to: addDays(to, 1) })
+  );
   return buildBlock(rows, from, to);
 }
 

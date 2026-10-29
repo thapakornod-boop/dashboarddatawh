@@ -1,5 +1,13 @@
-import { getLG014SummaryBase, getLG014Summary, LG014SellerRow } from '@/app/lib/api';
-import SellerTable from '@/app/components/SellerTable';
+import {
+  getLG014Summary,
+  getLatestDate,
+  getAvailableMonths,
+  monthToRange,
+  shiftYears,
+  LG014SellerRow,
+} from '@/app/lib/api';
+import { getTargets, preloadTargets, TargetRow } from '@/app/lib/targets';
+import SellerTable, { SellerDetailRow } from '@/app/components/SellerTable';
 const COMPANY_ORDER = ['SDO', 'PDC', 'DC'];
 const THAI_MONTH_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
@@ -26,26 +34,9 @@ type TrendPoint = { month: string; GIV: number; NIV: number };
 // ── เพิ่ม type สำหรับ donut ──────────────────────────────────────
 type PrincDonutSlice = { label: string; giv: number; niv: number; color: string };
 
-function getCurrentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthToRange(ym: string): { startDate: string; endDate: string } {
-  const [y, m] = ym.split('-').map(Number);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const lastDayNum = new Date(y, m, 0).getDate();
-  return {
-    startDate: `${y}-${pad(m)}-01`,
-    endDate: `${y}-${pad(m)}-${pad(lastDayNum)}`,
-  };
-}
-
-function shiftMonths(ym: string, monthsBack: number): string {
-  let [y, m] = ym.split('-').map(Number);
-  m -= monthsBack;
-  while (m <= 0) { m += 12; y -= 1; }
-  return `${y}-${String(m).padStart(2, '0')}`;
+// "2026-10" → "2025-10"
+function shiftYM(ym: string, years: number): string {
+  return shiftYears(`${ym}-01`, years).slice(0, 7);
 }
 
 function monthAbbr(ym: string): string {
@@ -58,8 +49,15 @@ function formatThaiMonth(ym: string): string {
   return `${monthAbbr(ym)} ${y}`;
 }
 
-function getTrendMonths(selectedMonth: string): string[] {
-  return Array.from({ length: 6 }, (_, i) => shiftMonths(selectedMonth, 5 - i));
+// "ต.ค. 2026" หรือ "ม.ค. 2026 → ต.ค. 2026"
+function formatRange(from: string, to: string): string {
+  return from === to ? formatThaiMonth(from) : `${formatThaiMonth(from)} → ${formatThaiMonth(to)}`;
+}
+
+// "2026-10-29" → "29/10/2026"
+function formatDate(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return `${d}/${m}/${y}`;
 }
 
 function fmtNum(n: number | null | undefined) {
@@ -73,6 +71,10 @@ function fmtShort(n: number): string {
   return n.toFixed(0);
 }
 
+function fmtPct(n: number | null) {
+  return n == null ? '–' : `${n.toFixed(1)}%`;
+}
+
 function growthColor(pct: number | null) {
   if (pct == null) return '#9CA3AF';
   return pct >= 0 ? '#16A34A' : '#DC2626';
@@ -84,16 +86,9 @@ function growthArrow(pct: number | null) {
 }
 
 function normalizeCompany(c: string) { return (c ?? '').trim().toUpperCase(); }
-function isGSM(seller: string) { return (seller ?? '').toUpperCase().includes('GSM'); }
 function companySortIndex(company: string) {
   const idx = COMPANY_ORDER.indexOf(normalizeCompany(company));
   return idx === -1 ? 999 : idx;
-}
-
-function distinctCompanies(rows: LG014SellerRow[]) {
-  return Array.from(new Set(rows.map((r) => r.Company))).sort(
-    (a, b) => companySortIndex(a) - companySortIndex(b) || a.localeCompare(b)
-  );
 }
 
 function sumGIVNIV(rows: LG014SellerRow[]) {
@@ -103,11 +98,45 @@ function sumGIVNIV(rows: LG014SellerRow[]) {
   );
 }
 
-function sumTrendPoints(points: TrendPoint[]) {
-  return points.reduce(
-    (acc, p) => { acc.GIV += p.GIV ?? 0; acc.NIV += p.NIV ?? 0; return acc; },
-    { GIV: 0, NIV: 0 }
+function sumTargets(rows: TargetRow[]) {
+  return rows.reduce(
+    (acc, r) => { acc.target += r.target; acc.be += r.be; return acc; },
+    { target: 0, be: 0 }
   );
+}
+
+// รวมยอดหลายเดือนเป็นรายเซลล์ (key = บริษัท + รหัสเซลล์)
+function mergeSellers(blocks: LG014SellerRow[][]): LG014SellerRow[] {
+  const map = new Map<string, LG014SellerRow>();
+  for (const rows of blocks) {
+    for (const r of rows) {
+      const key = `${r.Company}|${r.Seller}`;
+      const cur = map.get(key);
+      if (cur) { cur.GIV += r.GIV; cur.NIV += r.NIV; }
+      else map.set(key, { ...r });
+    }
+  }
+  return Array.from(map.values());
+}
+
+// ตารางรายคน: ยอดปีนี้ + ปีก่อน + Target / BE (รวมเซลล์ที่มี Target แต่ยังไม่มียอด)
+function buildSellerDetail(
+  cur: LG014SellerRow[], prev: LG014SellerRow[], targets: TargetRow[]
+): SellerDetailRow[] {
+  const map = new Map<string, SellerDetailRow>();
+  const get = (company: string, seller: string, princ: string) => {
+    const key = `${company}|${seller}`;
+    let row = map.get(key);
+    if (!row) {
+      row = { company, seller, princ, giv: 0, niv: 0, prevGIV: 0, prevNIV: 0, target: 0, be: 0 };
+      map.set(key, row);
+    }
+    return row;
+  };
+  for (const r of cur)  { const row = get(r.Company, r.Seller, r.Princ); row.giv += r.GIV; row.niv += r.NIV; }
+  for (const r of prev) { const row = get(r.Company, r.Seller, r.Princ); row.prevGIV += r.GIV; row.prevNIV += r.NIV; }
+  for (const t of targets) { const row = get(t.company, t.seller, t.principal); row.target += t.target; row.be += t.be; }
+  return Array.from(map.values());
 }
 
 function aggregateByCompany(rows: LG014SellerRow[]): CompanyAgg[] {
@@ -180,14 +209,6 @@ function IconShare() {
     </svg>
   );
 }
-function IconSearch() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.3-4.3" />
-    </svg>
-  );
-}
 function IconCalendar() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -229,6 +250,8 @@ function TrendLineChart({ points }: { points: TrendPoint[] }) {
   const innerH = h - padT - padB;
   const maxVal = Math.max(...points.map((p) => Math.max(p.NIV, p.GIV)), 1);
   const stepX = points.length > 1 ? innerW / (points.length - 1) : 0;
+  // ช่วงคร่อมปี → ใส่ปีท้ายชื่อเดือน เช่น "ธ.ค. 25"
+  const multiYear = new Set(points.map((p) => p.month.slice(0, 4))).size > 1;
 
   const xFor = (i: number) => padL + i * stepX;
   const yFor = (v: number) => padT + (1 - v / maxVal) * innerH;
@@ -260,7 +283,7 @@ function TrendLineChart({ points }: { points: TrendPoint[] }) {
         ))}
         {points.map((p, i) => (
           <text key={`x${i}`} x={xFor(i)} y={h - 8} textAnchor="middle" fill="#5B6478" fontSize={11} fontWeight={600}>
-            {monthAbbr(p.month)}
+            {multiYear ? `${monthAbbr(p.month)} ${p.month.slice(2, 4)}` : monthAbbr(p.month)}
           </text>
         ))}
       </svg>
@@ -463,76 +486,166 @@ function DonutChart({
   );
 }
 
+// ── การ์ดเทียบปีก่อน (แนวตั้ง: ปีนี้ / ปีก่อน / ส่วนต่าง / เติบโต) ─────
+function CompareCard({
+  label, sub, accent, cur, prev, hasPrev, prevLabel,
+}: {
+  label: string; sub: string; accent: string;
+  cur: number; prev: number; hasPrev: boolean; prevLabel: string;
+}) {
+  const g = hasPrev ? pctGrowth(cur, prev) : null;
+  return (
+    <div className="cmp-card" style={{ '--cmp-accent': accent } as React.CSSProperties}>
+      <div className="cmp-head">
+        <span className="cmp-title">{label}</span>
+        <span className="cmp-sub">{sub}</span>
+      </div>
+      <div className="cmp-main">{fmtNum(cur)}</div>
+      <div className="cmp-unit">บาท</div>
+      <div className="cmp-lines">
+        <div className="cmp-line">
+          <span>ปีก่อน · {prevLabel}</span>
+          <b className={hasPrev ? '' : 'muted'}>{hasPrev ? fmtNum(prev) : 'ยังไม่มีข้อมูล'}</b>
+        </div>
+        <div className="cmp-line">
+          <span>ส่วนต่าง</span>
+          <b style={{ color: hasPrev ? growthColor(cur - prev) : undefined }} className={hasPrev ? '' : 'muted'}>
+            {hasPrev ? `${cur - prev >= 0 ? '+' : ''}${fmtNum(cur - prev)}` : '–'}
+          </b>
+        </div>
+        <div className="cmp-line">
+          <span>เติบโต (YoY)</span>
+          <span className="cmp-growth" style={{ color: growthColor(g), background: g == null ? '#F1F4FA' : g >= 0 ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.1)' }}>
+            {growthArrow(g)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProgressLine({ label, pct, color }: { label: string; pct: number | null; color: string }) {
+  return (
+    <div className="prog">
+      <div className="prog-top"><span>{label}</span><b style={{ color }}>{fmtPct(pct)}</b></div>
+      <div className="prog-bg"><div className="prog-fill" style={{ width: `${Math.min(pct ?? 0, 100)}%`, background: color }} /></div>
+    </div>
+  );
+}
+
+// ── การ์ด Target / BE ──────────────────────────────────────────────
+function TargetCard({
+  target, be, giv, note,
+}: { target: number; be: number; giv: number; note: string | null }) {
+  const givPct = target ? (giv / target) * 100 : null;
+  const bePct  = target ? (be / target) * 100 : null;
+  return (
+    <div className="cmp-card" style={{ '--cmp-accent': '#D97706' } as React.CSSProperties}>
+      <div className="cmp-head">
+        <span className="cmp-title">Target / BE</span>
+        <span className="cmp-sub">จาก Google Sheet (BEST - Estimate)</span>
+      </div>
+      <div className="cmp-main">{target ? fmtNum(target) : '–'}</div>
+      <div className="cmp-unit">Target (บาท)</div>
+      <div className="cmp-lines">
+        <div className="cmp-line"><span>BE (คาดการณ์)</span><b>{be ? fmtNum(be) : '–'}</b></div>
+        <ProgressLine label="GIV เทียบ Target" pct={givPct} color="#16A34A" />
+        <ProgressLine label="BE เทียบ Target" pct={bePct} color="#D97706" />
+        {note && <div className="cmp-note">{note}</div>}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────
+const YM_RE = /^\d{4}-\d{2}$/;
+
 export default async function SalesOverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ [key: string]: string | undefined }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const params        = await searchParams;
-  const currentMonth  = getCurrentMonth();
-  const selectedMonth = params.month || currentMonth;
+  const params = await searchParams;
+  const param = (k: string) => (typeof params[k] === 'string' ? (params[k] as string) : undefined);
 
-  const companyFilter = params.company || 'all';
-  const excludeGSM    = params.gsm === '1' || params.gsm === 'on';
+  const companyParam  = (param('company') ?? 'all').toUpperCase();
+  const companyFilter = COMPANY_ORDER.includes(companyParam) ? companyParam : 'all';
+  const view          = param('view') === 'seller' ? 'seller' : 'overview';
+  const byCompany = <T,>(rows: T[], co: (r: T) => string) =>
+    companyFilter === 'all' ? rows : rows.filter((r) => normalizeCompany(co(r)) === companyFilter);
 
-  const showRange3 = params.range3 === '1' || params.range3 === 'on';
-  const showRange6 = params.range6 === '1' || params.range6 === 'on';
-
-  const { startDate, endDate } = monthToRange(selectedMonth);
-  const trendMonths = getTrendMonths(selectedMonth);
-
-  let result: Awaited<ReturnType<typeof getLG014SummaryBase>> | undefined;
-  let trendPoints: TrendPoint[] = [];
   let errorMessage: string | null = null;
+  let targetError = null as string | null;
+  let months: string[] = [];
+  let latestDate = '';
+  let fromYM = '';
+  let toYM = '';
+  let trendMonths: string[] = [];
+  let curByMonth: LG014SellerRow[][] = [];
+  let prevByMonth: LG014SellerRow[][] = [];
+  let targetRows: TargetRow[] = [];
+  let targetMonths: string[] = [];
 
   try {
-    const [baseRes, trendResList] = await Promise.all([
-      getLG014SummaryBase({ startDate, endDate }),
+    preloadTargets();
+    [latestDate, months] = await Promise.all([getLatestDate(), getAvailableMonths()]);
+    const latestMonth = months[months.length - 1] ?? latestDate.slice(0, 7);
+
+    // ช่วงเดือนที่เลือก (ค่าเริ่มต้น = เดือนล่าสุด) ถ้าเลือกกลับด้านก็สลับให้
+    fromYM = YM_RE.test(param('from') ?? '') ? param('from')! : latestMonth;
+    toYM   = YM_RE.test(param('to') ?? '')   ? param('to')!   : latestMonth;
+    if (fromYM > toYM) [fromYM, toYM] = [toYM, fromYM];
+
+    // กราฟแนวโน้ม = เดือนในช่วงที่เลือก ถ้าเลือกน้อยกว่า 3 เดือนให้แสดง 6 เดือนล่าสุดถึงเดือนปลายทาง
+    const rangeMonths = months.filter((m) => m >= fromYM && m <= toYM);
+    trendMonths = rangeMonths.length >= 3 ? rangeMonths : months.filter((m) => m <= toYM).slice(-6);
+
+    // ดึงรายเดือน (ปีนี้ + เดือนเดียวกันปีก่อน) แล้วค่อยรวมเป็นช่วง — ตารางสรุปรายวันเร็วพอ
+    const [cur, prev, targets] = await Promise.all([
       Promise.all(trendMonths.map((m) => getLG014Summary(monthToRange(m)))),
+      Promise.all(trendMonths.map((m) => getLG014Summary(monthToRange(shiftYM(m, 1))))),
+      getTargets(fromYM, toYM).catch((err: unknown) => {
+        targetError = err instanceof Error ? err.message : 'อ่าน Target ไม่สำเร็จ';
+        return { rows: [] as TargetRow[], months: [] as string[] };
+      }),
     ]);
-    result = baseRes;
-    trendPoints = trendMonths.map((m, i) => {
-      const rows = trendResList[i]?.bySeller ?? [];
-      const filtered = excludeGSM ? rows.filter((r) => !isGSM(r.Seller)) : rows;
-      const { GIV, NIV } = sumGIVNIV(filtered);
-      return { month: m, GIV, NIV };
-    });
+    curByMonth  = cur.map((b) => b.bySeller);
+    prevByMonth = prev.map((b) => b.bySeller);
+    targetRows   = targets.rows;
+    targetMonths = targets.months;
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : 'เกิดข้อผิดพลาด';
   }
 
-  const prevPeriod = result?.previous?.period;
-  const rawCurrent  = result?.current?.bySeller  ?? [];
-  const rawPrevious = result?.previous?.bySeller ?? [];
+  const inRange = (i: number) => trendMonths[i] >= fromYM && trendMonths[i] <= toYM;
+  const curRows  = byCompany(mergeSellers(curByMonth.filter((_, i) => inRange(i))), (r) => r.Company);
+  const prevRows = byCompany(mergeSellers(prevByMonth.filter((_, i) => inRange(i))), (r) => r.Company);
+  const targets  = byCompany(targetRows, (r) => r.company);
 
-  const curRows  = excludeGSM ? rawCurrent.filter((r) => !isGSM(r.Seller))  : rawCurrent;
-  const prevRows = excludeGSM ? rawPrevious.filter((r) => !isGSM(r.Seller)) : rawPrevious;
+  const trendPoints: TrendPoint[] = trendMonths.map((m, i) => ({
+    month: m,
+    ...sumGIVNIV(byCompany(curByMonth[i] ?? [], (r) => r.Company)),
+  }));
 
-  const grandCurrent   = sumGIVNIV(curRows);
-  const grandPrevious  = sumGIVNIV(prevRows);
-  const grandNIVGrowthPct = pctGrowth(grandCurrent.NIV, grandPrevious.NIV);
-  const grandGIVGrowthPct = pctGrowth(grandCurrent.GIV, grandPrevious.GIV);
+  const grandCurrent  = sumGIVNIV(curRows);
+  const grandPrevious = sumGIVNIV(prevRows);
+  const grandTarget   = sumTargets(targets);
+  // vw_lg014 มีข้อมูลตั้งแต่ ม.ค. 2026 — ช่วงที่ปีก่อนไม่มีข้อมูลให้บอกว่า "ยังไม่มีข้อมูล" แทนการโชว์ 0
+  const hasPrev = prevRows.length > 0;
+
+  const rangeLabel     = fromYM ? formatRange(fromYM, toYM) : '';
+  const prevRangeLabel = fromYM ? formatRange(shiftYM(fromYM, 1), shiftYM(toYM, 1)) : '';
+  const missingTargetMonths = months.filter((m) => m >= fromYM && m <= toYM && !targetMonths.includes(m));
+  const targetNote = targetError
+    ? `อ่าน Target ไม่สำเร็จ: ${targetError}`
+    : missingTargetMonths.length > 0
+      ? `ไม่มี Target ในชีตของเดือน ${missingTargetMonths.map(formatThaiMonth).join(', ')}`
+      : null;
 
   const companyCurrent  = aggregateByCompany(curRows);
   const companyPrevious = aggregateByCompany(prevRows);
-  const companyOptions  = distinctCompanies(rawCurrent);
   const princDonutData  = buildPrincDonutData(curRows);
-
-  const last3Points = trendPoints.slice(-3);
-  const last6Points = trendPoints.slice(-6);
-  const sum3 = sumTrendPoints(last3Points);
-  const sum6 = sumTrendPoints(last6Points);
-  const range3Label = last3Points.length > 0
-    ? `${formatThaiMonth(last3Points[0].month)} → ${formatThaiMonth(last3Points[last3Points.length - 1].month)}`
-    : '';
-  const range6Label = last6Points.length > 0
-    ? `${formatThaiMonth(last6Points[0].month)} → ${formatThaiMonth(last6Points[last6Points.length - 1].month)}`
-    : '';
-
-  const tableRows = curRows
-    .filter((r) => companyFilter === 'all' || normalizeCompany(r.Company) === normalizeCompany(companyFilter))
-    .sort((a, b) => (b.NIV ?? 0) - (a.NIV ?? 0));
+  const sellerDetail    = buildSellerDetail(curRows, prevRows, targets);
 
   return (
     <>
@@ -608,17 +721,28 @@ export default async function SalesOverviewPage({
 
         .view-row {
           background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px;
-          padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+          padding: 14px 20px; display: flex; align-items: center; justify-content: space-between;
           gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
           box-shadow: 0 4px 16px rgba(26,37,64,0.05);
         }
-        .view-row-label { font-size: 14px; font-weight: 700; color: #1A2540; }
         .view-row-sub { font-size: 12px; color: #A2ABBD; margin-top: 2px; }
         .date-pill {
           display: flex; align-items: center; gap: 8px;
           background: #F4F7FC; border: 1px solid #E7ECF5; border-radius: 12px;
           padding: 9px 14px; font-size: 13px; font-weight: 700; color: #1A2540;
         }
+
+        /* ── toggle ภาพรวม / รายคน (radio อยู่ในฟอร์ม → กดค้นหาแล้วยังอยู่หน้าเดิม) ── */
+        .seg { display: inline-flex; background: #F1F4FA; border-radius: 12px; padding: 4px; gap: 4px; }
+        .seg input { position: absolute; opacity: 0; pointer-events: none; }
+        .seg label {
+          padding: 8px 18px; border-radius: 9px; font-size: 13px; font-weight: 700; color: #5B6478;
+          cursor: pointer; transition: all .15s; user-select: none;
+        }
+        .seg input:checked + label { background: #FFFFFF; color: #2563EB; box-shadow: 0 2px 8px rgba(26,37,64,0.1); }
+        .seg input:focus-visible + label { outline: 2px solid #3B9EE8; }
+        .page-body:has(#view-seller:checked) .view-overview { display: none; }
+        .page-body:has(#view-overview:checked) .view-seller { display: none; }
 
         .filter-card {
           background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px;
@@ -633,8 +757,7 @@ export default async function SalesOverviewPage({
           min-width: 140px; transition: border-color .2s, box-shadow .2s; font-family: inherit;
         }
         .fg input:focus, .fg select:focus { border-color: #3B9EE8; box-shadow: 0 0 0 3px rgba(59,158,232,0.15); background: #FFFFFF; }
-        .fg-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #5B6478; padding: 9px 4px; cursor: pointer; user-select: none; }
-        .fg-check input[type="checkbox"] { width: 15px; height: 15px; accent-color: #2563EB; cursor: pointer; }
+        .fg-arrow { align-self: flex-end; padding: 10px 0; color: #A2ABBD; font-weight: 700; }
         .btn-search {
           padding: 9px 20px; background: linear-gradient(135deg, #2563EB 0%, #3B9EE8 100%);
           color: #fff; border: none; border-radius: 10px; font-size: 13.5px; font-weight: 700;
@@ -642,34 +765,39 @@ export default async function SalesOverviewPage({
           transition: opacity .2s, transform .1s; font-family: inherit;
         }
         .btn-search:hover { opacity: .92; transform: translateY(-1px); }
+        .filter-hint { font-size: 11.5px; color: #A2ABBD; align-self: center; }
 
         .sec-label { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
         .sec-label-text { font-size: 11px; font-weight: 800; color: #8A93A6; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
         .sec-label::before, .sec-label::after { content: ''; flex: 1; height: 1px; background: #E7ECF5; }
 
-        .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 4px; }
-        .kpi-card {
-          background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; padding: 18px 20px;
-          position: relative; overflow: hidden; box-shadow: 0 4px 16px rgba(26,37,64,0.05);
-          transition: transform .2s, box-shadow .2s;
-          min-width: 0;
+        /* ── การ์ดเทียบปีก่อน (แนวตั้ง) ── */
+        .cmp-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
+        @media (max-width: 1000px) { .cmp-row { grid-template-columns: 1fr; } }
+        .cmp-card {
+          background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; padding: 20px 22px;
+          position: relative; overflow: hidden; box-shadow: 0 4px 16px rgba(26,37,64,0.05); min-width: 0;
         }
-        .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(26,37,64,0.09); }
-        .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 16px 16px 0 0; background: var(--accent-top, #3B9EE8); }
-        .kpi-card.accent-green::before { --accent-top: #16A34A; }
-        .kpi-card.accent-blue::before  { --accent-top: #2563EB; }
-        .kpi-card.accent-red::before   { --accent-top: #DC2626; }
-        .kpi-card.accent-dim::before   { --accent-top: #CBD5E1; }
-        .kpi-card.accent-amber::before { --accent-top: #D97706; }
-        .kpi-icon  { font-size: 20px; margin-bottom: 8px; display: block; }
-        .kpi-label { font-size: 10.5px; font-weight: 700; color: #8A93A6; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
-        .kpi-value {
-          font-size: clamp(15px, 2.1vw, 24px);
-          font-weight: 800; color: #1A2540;
-          font-variant-numeric: tabular-nums; letter-spacing: -0.3px; line-height: 1.15;
-          overflow-wrap: anywhere; word-break: break-word; max-width: 100%;
+        .cmp-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--cmp-accent); }
+        .cmp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .cmp-title { font-size: 15px; font-weight: 800; color: var(--cmp-accent); }
+        .cmp-sub { font-size: 11px; color: #A2ABBD; }
+        .cmp-main {
+          font-size: clamp(20px, 2.3vw, 28px); font-weight: 800; color: #1A2540;
+          font-variant-numeric: tabular-nums; letter-spacing: -0.4px; line-height: 1.15; overflow-wrap: anywhere;
         }
-        .kpi-unit  { font-size: 10.5px; color: #A2ABBD; margin-top: 6px; }
+        .cmp-unit { font-size: 11px; color: #A2ABBD; margin-top: 4px; }
+        .cmp-lines { margin-top: 14px; border-top: 1px dashed #E7ECF5; padding-top: 10px; display: flex; flex-direction: column; gap: 9px; }
+        .cmp-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; color: #5B6478; }
+        .cmp-line b { font-variant-numeric: tabular-nums; color: #1A2540; font-weight: 700; text-align: right; }
+        .cmp-line b.muted { color: #A2ABBD; font-weight: 600; }
+        .cmp-growth { font-weight: 800; font-size: 13px; padding: 3px 10px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+        .cmp-note { font-size: 11px; color: #B45309; background: rgba(217,119,6,0.08); border-radius: 8px; padding: 6px 10px; }
+        .prog { display: flex; flex-direction: column; gap: 5px; }
+        .prog-top { display: flex; justify-content: space-between; font-size: 12.5px; color: #5B6478; }
+        .prog-top b { font-variant-numeric: tabular-nums; }
+        .prog-bg { height: 6px; background: #EEF1F7; border-radius: 99px; overflow: hidden; }
+        .prog-fill { height: 100%; border-radius: 99px; }
 
         .chart-strip-1 { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 14px; }
         .chart-strip-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
@@ -683,7 +811,7 @@ export default async function SalesOverviewPage({
         .chart-card-title { font-size: 14.5px; font-weight: 800; color: #1A2540; }
         .chart-card-sub { font-size: 11.5px; color: #A2ABBD; }
 
-        .co-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+        .co-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
         .co-card {
           background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; padding: 16px 18px;
           border-left: 3px solid var(--co-color, #3B9EE8); box-shadow: 0 4px 16px rgba(26,37,64,0.05);
@@ -693,20 +821,31 @@ export default async function SalesOverviewPage({
         .co-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
         .co-name { font-size: 14.5px; font-weight: 800; color: var(--co-color, #2563EB); display: flex; align-items: center; gap: 6px; }
         .co-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #F1F4FA; }
-        .co-metrics { display: flex; gap: 18px; flex-wrap: wrap; }
+        .co-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
         .co-metric-label { font-size: 10.5px; color: #8A93A6; margin-bottom: 3px; }
-        .co-metric-val   { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        .co-metric-val   { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
         .co-metric-val.giv { color: #16A34A; }
         .co-metric-val.niv { color: #2563EB; }
-        .co-metric-val.dim { color: #A2ABBD; font-size: 14px; }
+        .co-metric-val.dim { color: #A2ABBD; font-size: 13px; }
+        .co-metric-val.amber { color: #B45309; font-size: 13px; }
 
         .tbl-card { background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; overflow: auto; box-shadow: 0 4px 16px rgba(26,37,64,0.05); }
         .tbl-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 0; gap: 12px; flex-wrap: wrap; }
         .tbl-title  { font-size: 14px; font-weight: 700; color: #1A2540; }
+        .tbl-tools  { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .tbl-count  { font-size: 12px; font-weight: 700; color: #2563EB; background: rgba(37,99,235,0.08); padding: 3px 10px; border-radius: 99px; border: 1px solid rgba(37,99,235,0.18); }
-        table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 760px; }
+        .tbl-select { padding: 8px 12px; border: 1px solid #E7ECF5; border-radius: 10px; font-size: 13px; color: #1A2540; background: #F4F7FC; font-family: inherit; }
+        .tbl-btn { padding: 8px 14px; border: 1px solid #E7ECF5; border-radius: 10px; font-size: 13px; font-weight: 700; color: #2563EB; background: #FFFFFF; cursor: pointer; font-family: inherit; }
+        .tbl-btn:hover { background: #F1F4FA; }
+        .pills { display: inline-flex; gap: 4px; background: #F1F4FA; border-radius: 10px; padding: 3px; }
+        .pill { padding: 6px 12px; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 700; color: #5B6478; background: transparent; cursor: pointer; font-family: inherit; }
+        .pill.on { background: #FFFFFF; color: #2563EB; box-shadow: 0 2px 6px rgba(26,37,64,0.08); }
+        table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 1100px; }
         thead th { padding: 12px 14px; text-align: left; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #8A93A6; background: #F8FAFD; border-bottom: 1px solid #E7ECF5; white-space: nowrap; }
         thead th.r { text-align: right; }
+        thead th.sortable { cursor: pointer; user-select: none; }
+        thead th.sortable:hover { color: #2563EB; }
+        thead th.sorted { color: #2563EB; }
         thead th.base-col { color: #C3CADA; }
         tbody tr:hover td { background: #F8FAFD; }
         tbody td { padding: 10px 14px; border-bottom: 1px solid #EFF2F8; color: #1A2540; white-space: nowrap; }
@@ -721,11 +860,7 @@ export default async function SalesOverviewPage({
         .rank.r1 { background: rgba(234,179,8,0.16); color: #B45309; }
         .rank.r2 { background: rgba(148,163,184,0.2); color: #64748B; }
         .rank.r3 { background: rgba(180,83,9,0.16); color: #92400E; }
-        .bar-wrap { display: flex; align-items: center; gap: 8px; min-width: 110px; }
-        .bar-bg   { flex: 1; height: 5px; background: #EEF1F7; border-radius: 99px; overflow: hidden; }
-        .bar-fill { height: 100%; background: #3B9EE8; border-radius: 99px; }
-        .bar-pct  { font-size: 11px; color: #A2ABBD; min-width: 34px; text-align: right; }
-        tfoot td { padding: 12px 14px; font-weight: 700; background: #F8FAFD !important; border-top: 1px solid rgba(37,99,235,0.3); color: #1A2540; }
+        tfoot td { padding: 12px 14px; font-weight: 700; background: #F8FAFD !important; border-top: 1px solid rgba(37,99,235,0.3); color: #1A2540; white-space: nowrap; }
         tfoot td.r { text-align: right; color: #2563EB; font-family: monospace; font-size: 12.5px; }
 
         .error-box { background: rgba(220,38,38,0.06); border-left: 3px solid #DC2626; border-radius: 12px; padding: 14px 18px; color: #B91C1C; font-size: 13px; margin-bottom: 20px; }
@@ -735,9 +870,7 @@ export default async function SalesOverviewPage({
           .sidebar { width: 60px; }
           .top-header { padding: 14px 16px; }
           .page-body { padding: 16px 16px 40px; }
-          .kpi-row { grid-template-columns: 1fr 1fr; }
           .co-grid { grid-template-columns: 1fr; }
-          .th-search { display: none; }
         }
       `}</style>
 
@@ -756,13 +889,11 @@ export default async function SalesOverviewPage({
             <div>
               <div className="th-breadcrumb">Dashboard / ภาพรวมการขาย</div>
               <div className="th-title">ภาพรวมยอดขาย</div>
-              <div className="th-sub">{formatThaiMonth(selectedMonth)}</div>
+              <div className="th-sub">
+                {rangeLabel}{companyFilter !== 'all' ? ` · ${companyFilter}` : ''}
+              </div>
             </div>
             <div className="th-right">
-              <div className="th-search">
-                <IconSearch />
-                <input type="text" placeholder="ค้นหาบริษัท, Principal..." disabled />
-              </div>
               <div className="th-avatar">
                 <div className="th-avatar-circle">RSM</div>
                 <div>
@@ -775,227 +906,170 @@ export default async function SalesOverviewPage({
 
           <div className="page-body">
 
+            {/* ─── Toggle มุมมอง + ช่วงข้อมูล ───────────────────── */}
             <div className="view-row">
-              <div>
-                <div className="view-row-label">ช่วงเวลาข้อมูล</div>
-                <div className="view-row-sub">แสดงข้อมูลของเดือนที่เลือก</div>
+              <div className="seg" role="radiogroup" aria-label="มุมมอง">
+                <input type="radio" id="view-overview" name="view" value="overview" form="filter-form" defaultChecked={view === 'overview'} />
+                <label htmlFor="view-overview">📊 ภาพรวม</label>
+                <input type="radio" id="view-seller" name="view" value="seller" form="filter-form" defaultChecked={view === 'seller'} />
+                <label htmlFor="view-seller">🧑‍💼 ยอดขายรายคน</label>
               </div>
-              <div className="date-pill">
-                <IconCalendar />
-                {formatThaiMonth(selectedMonth)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                {latestDate && <span className="view-row-sub">ข้อมูลถึง {formatDate(latestDate)} · อัปเดตทุกชั่วโมง</span>}
+                <div className="date-pill">
+                  <IconCalendar />
+                  {rangeLabel}
+                </div>
               </div>
             </div>
 
             {/* ─── Filter form ─────────────────────────────────── */}
-            <form method="GET" className="filter-card">
+            <form method="GET" id="filter-form" className="filter-card">
               <div className="fg">
-                <label>เดือนที่ดู</label>
-                <input type="month" name="month" defaultValue={selectedMonth} />
-              </div>
-              <div className="fg">
-                <label>บริษัท</label>
-                <select name="company" defaultValue={companyFilter}>
-                  <option value="all">ทั้งหมด ({companyOptions.length})</option>
-                  {companyOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                <label htmlFor="f-from">ตั้งแต่เดือน</label>
+                <select id="f-from" name="from" defaultValue={fromYM}>
+                  {months.map((m) => <option key={m} value={m}>{formatThaiMonth(m)}</option>)}
                 </select>
               </div>
-
-              <label className="fg-check">
-                <input type="checkbox" name="gsm" value="1" defaultChecked={excludeGSM} />
-                ไม่รวมรหัส GSM
-              </label>
-              <label className="fg-check">
-                <input type="checkbox" name="range3" value="1" defaultChecked={showRange3} />
-                ยอดขาย 3 เดือนย้อนหลัง
-              </label>
-              <label className="fg-check">
-                <input type="checkbox" name="range6" value="1" defaultChecked={showRange6} />
-                ยอดขาย 6 เดือนย้อนหลัง
-              </label>
+              <span className="fg-arrow">→</span>
+              <div className="fg">
+                <label htmlFor="f-to">ถึงเดือน</label>
+                <select id="f-to" name="to" defaultValue={toYM}>
+                  {months.map((m) => <option key={m} value={m}>{formatThaiMonth(m)}</option>)}
+                </select>
+              </div>
+              <div className="fg">
+                <label htmlFor="f-company">บริษัท</label>
+                <select id="f-company" name="company" defaultValue={companyFilter}>
+                  <option value="all">ทั้งหมด</option>
+                  {COMPANY_ORDER.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
               <button type="submit" className="btn-search">ค้นหา</button>
+              {months.length > 0 && (
+                <span className="filter-hint">มีข้อมูล {formatRange(months[0], months[months.length - 1])}</span>
+              )}
             </form>
 
             {errorMessage && <div className="error-box">❌ {errorMessage}</div>}
 
-            {result && (
+            {!errorMessage && (
               <>
-                {/* ─── KPI cards ───────────────────────────────── */}
-                <div className="sec-label"><span className="sec-label-text">📅 สรุปยอดขายรายเดือน · {startDate} → {endDate}</span></div>
-                <div className="kpi-row">
-                  <div className="kpi-card accent-green">
-                    <span className="kpi-icon">💰</span>
-                    <div className="kpi-label">GIV รวม</div>
-                    <div className="kpi-value">{fmtNum(grandCurrent.GIV)}</div>
-                    <div className="kpi-unit">บาท</div>
+                <div className="view-overview">
+                  {/* ─── สรุปยอด: GIV / NIV เทียบปีก่อน + Target / BE ───── */}
+                  <div className="sec-label"><span className="sec-label-text">📅 สรุปยอดขาย · {rangeLabel}{companyFilter !== 'all' ? ` · ${companyFilter}` : ''}</span></div>
+                  <div className="cmp-row">
+                    <CompareCard label="GIV" sub="ยอดก่อนหักส่วนลด" accent="#16A34A"
+                      cur={grandCurrent.GIV} prev={grandPrevious.GIV} hasPrev={hasPrev} prevLabel={prevRangeLabel} />
+                    <CompareCard label="NIV" sub="ยอดสุทธิ" accent="#2563EB"
+                      cur={grandCurrent.NIV} prev={grandPrevious.NIV} hasPrev={hasPrev} prevLabel={prevRangeLabel} />
+                    <TargetCard target={grandTarget.target} be={grandTarget.be} giv={grandCurrent.GIV} note={targetNote} />
                   </div>
-                  <div className="kpi-card accent-blue">
-                    <span className="kpi-icon">🎯</span>
-                    <div className="kpi-label">NIV รวม</div>
-                    <div className="kpi-value">{fmtNum(grandCurrent.NIV)}</div>
-                    <div className="kpi-unit">บาท</div>
-                  </div>
-                  <div className={`kpi-card ${(grandGIVGrowthPct ?? 0) >= 0 ? 'accent-green' : 'accent-red'}`}>
-                    <span className="kpi-icon">📊</span>
-                    <div className="kpi-label">GIV Growth (YoY)</div>
-                    <div className="kpi-value" style={{ color: growthColor(grandGIVGrowthPct) }}>{growthArrow(grandGIVGrowthPct)}</div>
-                    <div className="kpi-unit">เทียบปีก่อน</div>
-                  </div>
-                  <div className={`kpi-card ${(grandNIVGrowthPct ?? 0) >= 0 ? 'accent-green' : 'accent-red'}`}>
-                    <span className="kpi-icon">📈</span>
-                    <div className="kpi-label">NIV Growth (YoY)</div>
-                    <div className="kpi-value" style={{ color: growthColor(grandNIVGrowthPct) }}>{growthArrow(grandNIVGrowthPct)}</div>
-                    <div className="kpi-unit">เทียบปีก่อน</div>
-                  </div>
-                  <div className="kpi-card accent-amber">
-                    <span className="kpi-icon">🧾</span>
-                    <div className="kpi-label">GIV Base (ปีก่อน)</div>
-                    <div className="kpi-value" style={{ color: '#B45309' }}>{fmtNum(grandPrevious.GIV)}</div>
-                    <div className="kpi-unit">บาท</div>
-                  </div>
-                  <div className="kpi-card accent-dim">
-                    <span className="kpi-icon">🗂️</span>
-                    <div className="kpi-label">NIV Base (ปีก่อน)</div>
-                    <div className="kpi-value" style={{ color: '#8A93A6' }}>{fmtNum(grandPrevious.NIV)}</div>
-                    <div className="kpi-unit">บาท</div>
-                  </div>
-                </div>
 
-                {showRange3 && (
-                  <>
-                    <div className="sec-label"><span className="sec-label-text">📅 สรุปยอดขาย 3 เดือนย้อนหลัง · {range3Label}</span></div>
-                    <div className="kpi-row">
-                      <div className="kpi-card accent-green">
-                        <span className="kpi-icon">💰</span>
-                        <div className="kpi-label">GIV รวม (3 เดือน)</div>
-                        <div className="kpi-value">{fmtNum(sum3.GIV)}</div>
-                        <div className="kpi-unit">บาท</div>
+                  {/* ─── แนวโน้มยอดขาย ────────────────────────────── */}
+                  <div className="chart-strip-1">
+                    <div className="chart-card">
+                      <div className="chart-card-head">
+                        <span className="chart-card-icon"><IconTrend /></span>
+                        <div>
+                          <div className="chart-card-title">แนวโน้มยอดขาย</div>
+                          <div className="chart-card-sub">
+                            รายเดือน {trendMonths.length > 0 ? formatRange(trendMonths[0], trendMonths[trendMonths.length - 1]) : ''} (บาท) — GIV / NIV
+                          </div>
+                        </div>
                       </div>
-                      <div className="kpi-card accent-blue">
-                        <span className="kpi-icon">🎯</span>
-                        <div className="kpi-label">NIV รวม (3 เดือน)</div>
-                        <div className="kpi-value">{fmtNum(sum3.NIV)}</div>
-                        <div className="kpi-unit">บาท</div>
-                      </div>
+                      <TrendLineChart points={trendPoints} />
                     </div>
-                  </>
-                )}
-
-                {showRange6 && (
-                  <>
-                    <div className="sec-label"><span className="sec-label-text">📅 สรุปยอดขาย 6 เดือนย้อนหลัง · {range6Label}</span></div>
-                    <div className="kpi-row">
-                      <div className="kpi-card accent-green">
-                        <span className="kpi-icon">💰</span>
-                        <div className="kpi-label">GIV รวม (6 เดือน)</div>
-                        <div className="kpi-value">{fmtNum(sum6.GIV)}</div>
-                        <div className="kpi-unit">บาท</div>
-                      </div>
-                      <div className="kpi-card accent-blue">
-                        <span className="kpi-icon">🎯</span>
-                        <div className="kpi-label">NIV รวม (6 เดือน)</div>
-                        <div className="kpi-value">{fmtNum(sum6.NIV)}</div>
-                        <div className="kpi-unit">บาท</div>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* ─── แนวโน้มยอดขาย ────────────────────────────── */}
-                <div className="chart-strip-1">
-                  <div className="chart-card">
-                    <div className="chart-card-head">
-                      <span className="chart-card-icon"><IconTrend /></span>
-                      <div>
-                        <div className="chart-card-title">แนวโน้มยอดขาย</div>
-                        <div className="chart-card-sub">แนวโน้มยอดขายย้อนหลัง 6 เดือน (บาท) — GIV / NIV</div>
-                      </div>
-                    </div>
-                    <TrendLineChart points={trendPoints} />
                   </div>
-                </div>
 
-                {/* ─── ยอดขายรายบริษัท ──────────────────────────── */}
-                <div className="chart-strip-2">
-                  <div className="chart-card">
-                    <div className="chart-card-head">
-                      <span className="chart-card-icon" style={{ background: 'rgba(22,163,74,0.1)', color: '#16A34A' }}><IconBuilding /></span>
-                      <div>
-                        <div className="chart-card-title">ยอดขายรายบริษัท (GIV)</div>
-                        <div className="chart-card-sub">SDO / PDC / DC — ปัจจุบันเทียบกับปีก่อน</div>
-                      </div>
-                    </div>
-                    <CompanyCompareChart current={companyCurrent} previous={companyPrevious} metric="GIV" accentColor="#16A34A" />
-                  </div>
-                  <div className="chart-card">
-                    <div className="chart-card-head">
-                      <span className="chart-card-icon"><IconBuilding /></span>
-                      <div>
-                        <div className="chart-card-title">ยอดขายรายบริษัท (NIV)</div>
-                        <div className="chart-card-sub">SDO / PDC / DC — ปัจจุบันเทียบกับปีก่อน</div>
-                      </div>
-                    </div>
-                    <CompanyCompareChart current={companyCurrent} previous={companyPrevious} metric="NIV" accentColor="#2563EB" />
-                  </div>
-                </div>
-
-                {/* ─── สัดส่วนยอดขายตาม Principal — แยก GIV / NIV คนละวง ─── */}
-                {princDonutData.length > 0 && (
+                  {/* ─── ยอดขายรายบริษัท ──────────────────────────── */}
                   <div className="chart-strip-2">
                     <div className="chart-card">
                       <div className="chart-card-head">
-                        <span className="chart-card-icon" style={{ background: 'rgba(22,163,74,0.1)', color: '#16A34A' }}><IconPie /></span>
+                        <span className="chart-card-icon" style={{ background: 'rgba(22,163,74,0.1)', color: '#16A34A' }}><IconBuilding /></span>
                         <div>
-                          <div className="chart-card-title">สัดส่วนยอดขายตาม Principal (GIV)</div>
-                          <div className="chart-card-sub">รวมยอด GIV ของทุก Seller แยกตาม Principal ของแต่ละคน</div>
+                          <div className="chart-card-title">ยอดขายรายบริษัท (GIV)</div>
+                          <div className="chart-card-sub">{rangeLabel} เทียบ {prevRangeLabel}</div>
                         </div>
                       </div>
-                      <DonutChart data={princDonutData} metric="giv" />
+                      <CompanyCompareChart current={companyCurrent} previous={companyPrevious} metric="GIV" accentColor="#16A34A" />
                     </div>
                     <div className="chart-card">
                       <div className="chart-card-head">
-                        <span className="chart-card-icon" style={{ background: 'rgba(37,99,235,0.1)', color: '#2563EB' }}><IconPie /></span>
+                        <span className="chart-card-icon"><IconBuilding /></span>
                         <div>
-                          <div className="chart-card-title">สัดส่วนยอดขายตาม Principal (NIV)</div>
-                          <div className="chart-card-sub">รวมยอด NIV ของทุก Seller แยกตาม Principal ของแต่ละคน</div>
+                          <div className="chart-card-title">ยอดขายรายบริษัท (NIV)</div>
+                          <div className="chart-card-sub">{rangeLabel} เทียบ {prevRangeLabel}</div>
                         </div>
                       </div>
-                      <DonutChart data={princDonutData} metric="niv" />
+                      <CompanyCompareChart current={companyCurrent} previous={companyPrevious} metric="NIV" accentColor="#2563EB" />
                     </div>
                   </div>
-                )}
 
-                {/* ─── Company cards ────────────────────────────── */}
-                <div className="sec-label"><span className="sec-label-text">🏢 ยอดขายแยกตามบริษัท</span></div>
-                <div className="co-grid">
-                  {companyCurrent.map((c, i) => {
-                    const prevC = companyPrevious.find((p) => normalizeCompany(p.company) === normalizeCompany(c.company));
-                    const g     = prevC ? pctGrowth(c.NIV, prevC.NIV) : null;
-                    const col   = getCompanyColor(c.company, i);
-                    return (
-                      <div className="co-card" key={c.company} style={{ '--co-color': col } as React.CSSProperties}>
-                        <div className="co-head">
-                          <span className="co-name">⚡ {c.company}</span>
-                          {g != null && <span className="co-badge" style={{ color: growthColor(g) }}>{growthArrow(g)}</span>}
+                  {/* ─── สัดส่วนยอดขายตาม Principal — แยก GIV / NIV คนละวง ─── */}
+                  {princDonutData.length > 0 && (
+                    <div className="chart-strip-2">
+                      <div className="chart-card">
+                        <div className="chart-card-head">
+                          <span className="chart-card-icon" style={{ background: 'rgba(22,163,74,0.1)', color: '#16A34A' }}><IconPie /></span>
+                          <div>
+                            <div className="chart-card-title">สัดส่วนยอดขายตาม Principal (GIV)</div>
+                            <div className="chart-card-sub">รวมยอด GIV ของทุก Seller แยกตาม Principal ของแต่ละคน</div>
+                          </div>
                         </div>
-                        <div className="co-metrics">
-                          <div className="co-metric"><div className="co-metric-label">GIV</div><div className="co-metric-val giv">{fmtNum(c.GIV)}</div></div>
-                          <div className="co-metric"><div className="co-metric-label">NIV</div><div className="co-metric-val niv">{fmtNum(c.NIV)}</div></div>
-                          {prevC && <div className="co-metric"><div className="co-metric-label">Base NIV</div><div className="co-metric-val dim">{fmtNum(prevC.NIV)}</div></div>}
-                        </div>
+                        <DonutChart data={princDonutData} metric="giv" />
                       </div>
-                    );
-                  })}
+                      <div className="chart-card">
+                        <div className="chart-card-head">
+                          <span className="chart-card-icon" style={{ background: 'rgba(37,99,235,0.1)', color: '#2563EB' }}><IconPie /></span>
+                          <div>
+                            <div className="chart-card-title">สัดส่วนยอดขายตาม Principal (NIV)</div>
+                            <div className="chart-card-sub">รวมยอด NIV ของทุก Seller แยกตาม Principal ของแต่ละคน</div>
+                          </div>
+                        </div>
+                        <DonutChart data={princDonutData} metric="niv" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ─── Company cards ────────────────────────────── */}
+                  <div className="sec-label"><span className="sec-label-text">🏢 ยอดขายแยกตามบริษัท</span></div>
+                  <div className="co-grid">
+                    {companyCurrent.map((c, i) => {
+                      const prevC = companyPrevious.find((p) => normalizeCompany(p.company) === normalizeCompany(c.company));
+                      const coTarget = sumTargets(targets.filter((t) => normalizeCompany(t.company) === normalizeCompany(c.company)));
+                      const g     = prevC ? pctGrowth(c.NIV, prevC.NIV) : null;
+                      const col   = getCompanyColor(c.company, i);
+                      return (
+                        <div className="co-card" key={c.company} style={{ '--co-color': col } as React.CSSProperties}>
+                          <div className="co-head">
+                            <span className="co-name">⚡ {c.company}</span>
+                            <span className="co-badge" style={{ color: growthColor(g) }} title="NIV เทียบปีก่อน">{growthArrow(g)}</span>
+                          </div>
+                          <div className="co-metrics">
+                            <div className="co-metric"><div className="co-metric-label">GIV</div><div className="co-metric-val giv">{fmtNum(c.GIV)}</div></div>
+                            <div className="co-metric"><div className="co-metric-label">NIV</div><div className="co-metric-val niv">{fmtNum(c.NIV)}</div></div>
+                            <div className="co-metric"><div className="co-metric-label">Target</div><div className="co-metric-val amber">{coTarget.target ? fmtNum(coTarget.target) : '–'}</div></div>
+                            <div className="co-metric"><div className="co-metric-label">GIV / Target</div><div className="co-metric-val amber">{fmtPct(coTarget.target ? (c.GIV / coTarget.target) * 100 : null)}</div></div>
+                            <div className="co-metric"><div className="co-metric-label">BE</div><div className="co-metric-val dim">{coTarget.be ? fmtNum(coTarget.be) : '–'}</div></div>
+                            <div className="co-metric"><div className="co-metric-label">NIV ปีก่อน</div><div className="co-metric-val dim">{prevC ? fmtNum(prevC.NIV) : '–'}</div></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {/* ─── Seller table (client component — search แบบ instant filter) ── */}
-                <div className="sec-label" style={{ marginTop: 28 }}>
-                  <span className="sec-label-text">🧑‍💼 ยอดขายรายบุคคล</span>
+                {/* ─── ยอดขายรายคน (client component — ค้นหา/กรอง/เรียงได้ทันที) ── */}
+                <div className="view-seller">
+                  <SellerTable
+                    rows={sellerDetail}
+                    companyFilter={companyFilter}
+                    hasPrev={hasPrev}
+                    periodLabel={rangeLabel}
+                    fileTag={fromYM === toYM ? fromYM : `${fromYM}_${toYM}`}
+                  />
                 </div>
-                <SellerTable
-                  rows={tableRows}
-                  prevRows={prevRows}
-                  companyFilter={companyFilter}
-                />
               </>
             )}
           </div>

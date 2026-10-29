@@ -1,19 +1,29 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { LG014SellerRow } from '@/app/lib/api';
+
+// แถวตารางรายคน: ยอดช่วงที่เลือก + ช่วงเดียวกันปีก่อน + Target / BE จาก Google Sheet
+export type SellerDetailRow = {
+  company: string;
+  seller: string;
+  princ: string;
+  giv: number;
+  niv: number;
+  prevGIV: number;
+  prevNIV: number;
+  target: number;
+  be: number;
+};
+
+type SortKey = 'giv' | 'niv' | 'target' | 'givPct' | 'be' | 'bePct' | 'prevNIV' | 'growth';
+
+const COMPANIES = ['SDO', 'PDC', 'DC'];
 
 function fmtNum(n: number | null | undefined) {
   if (n == null) return '-';
   return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function normalizeCompany(c: string) { return (c ?? '').trim().toUpperCase(); }
-
-function growthColor(pct: number | null) {
-  if (pct == null) return '#9CA3AF';
-  return pct >= 0 ? '#16A34A' : '#DC2626';
-}
 function growthArrow(pct: number | null) {
   if (pct == null) return '–';
   return pct >= 0 ? `▲ ${pct.toFixed(2)}%` : `▼ ${Math.abs(pct).toFixed(2)}%`;
@@ -22,12 +32,45 @@ function pctGrowth(cur: number, prev: number): number | null {
   if (!prev) return null;
   return Number((((cur - prev) / Math.abs(prev)) * 100).toFixed(2));
 }
+function pctOf(value: number, target: number): number | null {
+  return target ? (value / target) * 100 : null;
+}
+function fmtPct(n: number | null) {
+  return n == null ? '–' : `${n.toFixed(1)}%`;
+}
+// ≥100% เขียว, ≥80% ส้ม, ต่ำกว่านั้นแดง
+function achieveColor(pct: number | null) {
+  if (pct == null) return '#A2ABBD';
+  return pct >= 100 ? '#16A34A' : pct >= 80 ? '#D97706' : '#DC2626';
+}
 
-function sumGIVNIV(rows: LG014SellerRow[]) {
-  return rows.reduce(
-    (acc, r) => { acc.GIV += r.GIV ?? 0; acc.NIV += r.NIV ?? 0; return acc; },
-    { GIV: 0, NIV: 0 }
-  );
+function sortValue(r: SellerDetailRow, key: SortKey): number {
+  switch (key) {
+    case 'givPct': return pctOf(r.giv, r.target) ?? -Infinity;
+    case 'bePct':  return pctOf(r.be, r.target) ?? -Infinity;
+    case 'growth': return pctGrowth(r.niv, r.prevNIV) ?? -Infinity;
+    default:       return r[key];
+  }
+}
+
+function downloadCsv(rows: SellerDetailRow[], fileTag: string) {
+  const header = ['บริษัท', 'รหัสเซลล์', 'Principal', 'GIV', 'NIV', 'Target', '% GIV/Target', 'BE', '% BE/Target', 'GIV ปีก่อน', 'NIV ปีก่อน', 'Growth NIV %'];
+  const cell = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const lines = rows.map((r) => [
+    r.company, r.seller, r.princ,
+    r.giv.toFixed(2), r.niv.toFixed(2), r.target.toFixed(2),
+    pctOf(r.giv, r.target)?.toFixed(1) ?? '', r.be.toFixed(2),
+    pctOf(r.be, r.target)?.toFixed(1) ?? '',
+    r.prevGIV.toFixed(2), r.prevNIV.toFixed(2),
+    pctGrowth(r.niv, r.prevNIV)?.toFixed(2) ?? '',
+  ].map(cell).join(','));
+  // BOM ให้ Excel อ่านภาษาไทยถูก
+  const blob = new Blob(['﻿' + [header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `sales-by-seller-${fileTag}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // ── Icon ─────────────────────────────
@@ -42,47 +85,93 @@ function IconSearch() {
 
 export default function SellerTable({
   rows,
-  prevRows,
   companyFilter,
+  hasPrev,
+  periodLabel,
+  fileTag,
 }: {
-  rows: LG014SellerRow[];
-  prevRows: LG014SellerRow[];
+  rows: SellerDetailRow[];
   companyFilter: string;
+  hasPrev: boolean;
+  periodLabel: string;
+  fileTag: string;
 }) {
   const [search, setSearch] = useState('');
+  // ถ้าตัวกรองด้านบนเลือกบริษัทไว้แล้ว ข้อมูลมีแค่บริษัทนั้น จึงซ่อนปุ่มเลือกบริษัท
+  const [company, setCompany] = useState('all');
+  const [princ, setPrinc] = useState('all');
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'giv', desc: true });
+
+  const princOptions = useMemo(
+    () => Array.from(new Set(rows.filter((r) => company === 'all' || r.company === company).map((r) => r.princ || '-'))).sort(),
+    [rows, company]
+  );
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toUpperCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) => r.Seller.toUpperCase().includes(q) || (r.Princ ?? '').toUpperCase().includes(q)
-    );
-  }, [rows, search]);
+    return rows
+      .filter((r) =>
+        (company === 'all' || r.company === company) &&
+        (princ === 'all' || (r.princ || '-') === princ) &&
+        (!q || r.seller.toUpperCase().includes(q) || r.princ.toUpperCase().includes(q))
+      )
+      .sort((a, b) => (sortValue(b, sort.key) - sortValue(a, sort.key)) * (sort.desc ? 1 : -1));
+  }, [rows, search, company, princ, sort]);
 
-  const tableTotals = useMemo(() => sumGIVNIV(filteredRows), [filteredRows]);
-  const maxNIV = useMemo(
-    () => filteredRows.reduce((m, r) => Math.max(m, r.NIV ?? 0), 1),
+  const totals = useMemo(
+    () => filteredRows.reduce(
+      (s, r) => ({
+        giv: s.giv + r.giv, niv: s.niv + r.niv, target: s.target + r.target, be: s.be + r.be,
+        prevGIV: s.prevGIV + r.prevGIV, prevNIV: s.prevNIV + r.prevNIV,
+      }),
+      { giv: 0, niv: 0, target: 0, be: 0, prevGIV: 0, prevNIV: 0 }
+    ),
     [filteredRows]
+  );
+
+  const th = (key: SortKey, label: string, extra = '') => (
+    <th
+      className={`r sortable ${sort.key === key ? 'sorted' : ''} ${extra}`}
+      onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : true }))}
+      aria-sort={sort.key === key ? (sort.desc ? 'descending' : 'ascending') : 'none'}
+    >
+      {label}{sort.key === key ? (sort.desc ? ' ↓' : ' ↑') : ''}
+    </th>
   );
 
   return (
     <div className="tbl-card">
       <div className="tbl-header">
         <span className="tbl-title">
-          ตารางยอดขายรายคน
+          ตารางยอดขายรายคน · {periodLabel}
           {companyFilter !== 'all' ? ` · ${companyFilter}` : ''}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="tbl-tools">
+          {companyFilter === 'all' && (
+            <div className="pills">
+              {['all', ...COMPANIES].map((c) => (
+                <button key={c} type="button" className={`pill ${company === c ? 'on' : ''}`}
+                  onClick={() => { setCompany(c); setPrinc('all'); }}>
+                  {c === 'all' ? 'ทั้งหมด' : c}
+                </button>
+              ))}
+            </div>
+          )}
+          <select className="tbl-select" value={princ} onChange={(e) => setPrinc(e.target.value)} aria-label="Principal">
+            <option value="all">ทุก Principal</option>
+            {princOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
           <div className="th-search" style={{ minWidth: 200 }}>
             <IconSearch />
             <input
               type="text"
-              placeholder="ค้นหารหัส Seller หรือชื่อ..."
+              placeholder="ค้นหารหัส Seller หรือ Principal..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <span className="tbl-count">{filteredRows.length} คน</span>
+          <button type="button" className="tbl-btn" onClick={() => downloadCsv(filteredRows, fileTag)}>⬇ CSV</button>
         </div>
       </div>
 
@@ -94,65 +183,65 @@ export default function SellerTable({
               <th>บริษัท</th>
               <th>Seller</th>
               <th>Princ</th>
-              <th className="r">GIV (฿)</th>
-              <th className="r">NIV (฿)</th>
-              <th className="r">%NIV</th>
-              <th>สัดส่วน</th>
-              <th className="r base-col">Base GIV (ปีก่อน)</th>
-              <th className="r base-col">Base NIV (ปีก่อน)</th>
-              <th className="r base-col">Growth</th>
+              {th('giv', 'GIV (฿)')}
+              {th('niv', 'NIV (฿)')}
+              {th('target', 'Target')}
+              {th('givPct', '% GIV/Target')}
+              {th('be', 'BE')}
+              {th('bePct', '% BE/Target')}
+              <th className="r base-col">GIV ปีก่อน</th>
+              {th('prevNIV', 'NIV ปีก่อน', 'base-col')}
+              {th('growth', 'Growth NIV', 'base-col')}
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((row: LG014SellerRow, i) => {
-              const pct = tableTotals.NIV ? ((row.NIV / tableTotals.NIV) * 100).toFixed(1) : '0.0';
-              const barW = maxNIV > 0 ? ((row.NIV / maxNIV) * 100).toFixed(1) : '0';
+            {filteredRows.map((row, i) => {
               const rankCls = i === 0 ? 'rank r1' : i === 1 ? 'rank r2' : i === 2 ? 'rank r3' : 'rank';
-              const prevRow = prevRows.find(
-                (p) => normalizeCompany(p.Company) === normalizeCompany(row.Company) && p.Seller.toUpperCase() === row.Seller.toUpperCase()
-              );
-              const prevGIV = prevRow?.GIV ?? null;
-              const prevNIV = prevRow?.NIV ?? null;
-              const rg = prevNIV != null && prevNIV !== 0 ? pctGrowth(row.NIV, prevNIV) : null;
+              const givPct = pctOf(row.giv, row.target);
+              const bePct = pctOf(row.be, row.target);
+              const rg = hasPrev ? pctGrowth(row.niv, row.prevNIV) : null;
               const growthCls = rg == null ? 'r dim' : rg >= 0 ? 'r grow-pos' : 'r grow-neg';
-              const rowKey = `${row.Company}-${row.Princ}-${row.Seller}-${i}`;
               return (
-                <tr key={rowKey}>
+                <tr key={`${row.company}|${row.seller}`}>
                   <td><span className={rankCls}>{i + 1}</span></td>
-                  <td className="co-cell">{row.Company}</td>
-                  <td className="seller-name">{row.Seller}</td>
-                  <td className="princ-cell" title={row.Princ}>{row.Princ || '-'}</td>
-                  <td className="r">{fmtNum(row.GIV)}</td>
-                  <td className="r">{fmtNum(row.NIV)}</td>
-                  <td className="r">{pct}%</td>
-                  <td>
-                    <div className="bar-wrap">
-                      <div className="bar-bg"><div className="bar-fill" style={{ width: `${barW}%` }} /></div>
-                      <span className="bar-pct">{barW}%</span>
-                    </div>
-                  </td>
-                  <td className="r dim">{fmtNum(prevGIV)}</td>
-                  <td className="r dim">{fmtNum(prevNIV)}</td>
-                  <td className={growthCls}>{rg == null ? '–' : growthArrow(rg)}</td>
+                  <td className="co-cell">{row.company}</td>
+                  <td className="seller-name">{row.seller}</td>
+                  <td className="princ-cell" title={row.princ}>{row.princ || '-'}</td>
+                  <td className="r">{fmtNum(row.giv)}</td>
+                  <td className="r">{fmtNum(row.niv)}</td>
+                  <td className="r">{row.target ? fmtNum(row.target) : '–'}</td>
+                  <td className="r" style={{ color: achieveColor(givPct), fontWeight: 700 }}>{fmtPct(givPct)}</td>
+                  <td className="r">{row.be ? fmtNum(row.be) : '–'}</td>
+                  <td className="r" style={{ color: achieveColor(bePct), fontWeight: 700 }}>{fmtPct(bePct)}</td>
+                  <td className="r dim">{hasPrev ? fmtNum(row.prevGIV) : '–'}</td>
+                  <td className="r dim">{hasPrev ? fmtNum(row.prevNIV) : '–'}</td>
+                  <td className={growthCls}>{growthArrow(rg)}</td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={4}>รวม{companyFilter !== 'all' ? ` (${companyFilter})` : 'ทั้งหมด'}</td>
-              <td className="r">{fmtNum(tableTotals.GIV)}</td>
-              <td className="r">{fmtNum(tableTotals.NIV)}</td>
-              <td className="r">100%</td>
-              <td />
-              <td className="r">–</td>
-              <td className="r">–</td>
-              <td className="r">–</td>
+              <td colSpan={4}>รวม {filteredRows.length} คน</td>
+              <td className="r">{fmtNum(totals.giv)}</td>
+              <td className="r">{fmtNum(totals.niv)}</td>
+              <td className="r">{fmtNum(totals.target)}</td>
+              <td className="r">{fmtPct(pctOf(totals.giv, totals.target))}</td>
+              <td className="r">{fmtNum(totals.be)}</td>
+              <td className="r">{fmtPct(pctOf(totals.be, totals.target))}</td>
+              <td className="r">{hasPrev ? fmtNum(totals.prevGIV) : '–'}</td>
+              <td className="r">{hasPrev ? fmtNum(totals.prevNIV) : '–'}</td>
+              <td className="r">{growthArrow(hasPrev ? pctGrowth(totals.niv, totals.prevNIV) : null)}</td>
             </tr>
           </tfoot>
         </table>
       ) : (
         <div className="empty-note">ไม่พบข้อมูลตามเงื่อนไขที่เลือก</div>
+      )}
+      {!hasPrev && (
+        <div className="empty-note" style={{ padding: '10px 20px 16px', fontSize: 12, textAlign: 'left' }}>
+          * ยังไม่มีข้อมูลปีก่อนในระบบ (vw_lg014 มีข้อมูลตั้งแต่ ม.ค. 2026) — คอลัมน์ปีก่อน / Growth จะแสดงเมื่อมีข้อมูล
+        </div>
       )}
     </div>
   );

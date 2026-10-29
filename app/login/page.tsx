@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 
@@ -37,19 +37,21 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // โหลดโครงหน้า dashboard ไว้ก่อนระหว่างกรอกข้อมูล กดเข้าสู่ระบบแล้วเปลี่ยนหน้าได้ทันที
+  useEffect(() => {
+    router.prefetch('/dashboard')
+  }, [router])
+
   // TODO: ยังไม่ต่อ backend จริง — มั่วๆ กรอกอะไรก็ผ่าน แล้ว redirect ไปหน้าถัดไปเลย
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    // จำลอง network delay เพื่อดู UX ตอน loading
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
     console.log('mock login:', { employeeId, idCard })
 
     // มั่วๆ ผ่านหมด ไม่เช็คอะไรจริง
-    router.push('/components')
+    router.push('/dashboard')
   }
 
   return (
