@@ -21,7 +21,8 @@ export function fmtInt(n: number | null | undefined) {
 
 // 381,607,715 → "381.61M"
 export function fmtShort(n: number): string {
-  if (Math.abs(n) >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
+  // มีคอมมาคั่นหลักพันด้วย เช่น 2,330.44M
+  if (Math.abs(n) >= 1_000_000) return (n / 1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + 'M';
   if (Math.abs(n) >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
   return n.toFixed(0);
 }

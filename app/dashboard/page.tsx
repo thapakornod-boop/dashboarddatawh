@@ -426,6 +426,23 @@ function RatioLine({ label, pct }: { label: string; pct: number | null }) {
   );
 }
 
+// ยอดจริง / ยอดฐาน + % (Sales vs Base / vs YA)
+function CompareLine({ label, cur, base }: { label: string; cur: number | undefined; base: number | undefined }) {
+  const pct = ratio(cur, base);
+  return (
+    <span className="sc-cmp">
+      <span className="sc-line">
+        <span className="muted">{label}</span>
+        {pct == null ? <span className="muted">–</span> : <b className={pct >= 100 ? 'growth-up' : 'growth-down'}>{pct >= 100 ? '▲' : '▼'} {pct.toFixed(1)}%</b>}
+      </span>
+      <span className="sc-nums">
+        <b>{cur == null ? '–' : fmtShort(cur)}</b>
+        <span className="muted"> / {base ? fmtShort(base) : 'ไม่มีข้อมูล'}</span>
+      </span>
+    </span>
+  );
+}
+
 type ScoreRow = { key: string; label: string; note?: string; cell: (s: CompanyScore, co: string) => React.ReactNode };
 
 function ScorecardTable({
@@ -458,8 +475,8 @@ function ScorecardTable({
       key: 'base', label: 'Sales vs Base', note: `${monthLabel} เทียบเดือนเดียวกันปีก่อน (ถึงวันเดียวกัน)`,
       cell: (s) => (
         <span className="sc-stack">
-          <RatioLine label="GIV" pct={ratio(s.month?.giv, s.base?.giv)} />
-          <RatioLine label="NIV" pct={ratio(s.month?.niv, s.base?.niv)} />
+          <CompareLine label="GIV" cur={s.month?.giv} base={s.base?.giv} />
+          <CompareLine label="NIV" cur={s.month?.niv} base={s.base?.niv} />
         </span>
       ),
     },
@@ -467,8 +484,8 @@ function ScorecardTable({
       key: 'fy', label: 'Sales vs YA (FYTD)', note: `ปีงบ P&G เริ่ม ก.ค. · ${ymLabel(R.fy.from, R.fy.to)} · ใช้กับ SDO`,
       cell: (s, co) => co !== 'SDO' ? <span className="muted">ไม่ใช้</span> : (
         <span className="sc-stack">
-          <RatioLine label="GIV" pct={ratio(s.fy.cur?.giv, s.fy.prev?.giv)} />
-          <RatioLine label="NIV" pct={ratio(s.fy.cur?.niv, s.fy.prev?.niv)} />
+          <CompareLine label="GIV" cur={s.fy.cur?.giv} base={s.fy.prev?.giv} />
+          <CompareLine label="NIV" cur={s.fy.cur?.niv} base={s.fy.prev?.niv} />
         </span>
       ),
     },
@@ -476,8 +493,8 @@ function ScorecardTable({
       key: 'cy', label: 'Sales vs YA (CY)', note: `ต้นปี → ปัจจุบัน · ${ymLabel(R.cy.from, R.cy.to)}`,
       cell: (s) => (
         <span className="sc-stack">
-          <RatioLine label="GIV" pct={ratio(s.cy.cur?.giv, s.cy.prev?.giv)} />
-          <RatioLine label="NIV" pct={ratio(s.cy.cur?.niv, s.cy.prev?.niv)} />
+          <CompareLine label="GIV" cur={s.cy.cur?.giv} base={s.cy.prev?.giv} />
+          <CompareLine label="NIV" cur={s.cy.cur?.niv} base={s.cy.prev?.niv} />
         </span>
       ),
     },
@@ -980,6 +997,9 @@ export default async function SalesOverviewPage({
         .sc-label .muted { font-size: 11.5px; line-height: 1.4; }
         .sc-stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .sc-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+        .sc-cmp { display: flex; flex-direction: column; gap: 1px; }
+        .sc-cmp + .sc-cmp { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
+        .sc-nums { font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
         .sc-big { font: 600 16px var(--font-display); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
         @container card (max-width: 800px) {
           .score td.sc-label { background: var(--brand-50); margin: -8px -14px 6px; padding: 10px 14px; width: auto; border-radius: 12px 12px 0 0; flex-direction: column; align-items: flex-start; text-align: left; }
