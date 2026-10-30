@@ -13,6 +13,16 @@ export type TargetRow = {
   principal: string;
   target: number;
   be: number;
+  // ข้อมูลโครงสร้างทีมจากชีต (ใช้หน้า "ยอดขายตามสาขา")
+  sm: string;
+  sup: string;
+  branch: string;
+  channel: string;
+  name: string;
+  order: number; // ลำดับแถวในชีต — แสดงเรียงแบบเดียวกับชีต
+  // ยอด GIV / NIV ตามชีต (ยอด SDO ในชีตรวมเป็นรหัสเขต เช่น 501AD01 จึงจับคู่รหัสกับระบบไม่ได้ — ใช้กับหน้าตามสาขาเท่านั้น)
+  sheetGiv: number;
+  sheetNiv: number;
 };
 
 // อ่านใหม่ทุก 5 นาที แก้ในชีตแล้วไม่เกิน 5 นาทีหน้าเว็บจะเห็น
@@ -63,7 +73,10 @@ function toNumber(s: string | undefined) {
   return Number.isFinite(n) ? (neg ? -n : n) : 0;
 }
 
-type SheetRow = { seller: string; principal: string; branch: string; target: number; be: number };
+type SheetRow = {
+  seller: string; principal: string; branch: string; target: number; be: number;
+  sm: string; sup: string; channel: string; name: string; sheetGiv: number; sheetNiv: number;
+};
 
 async function fetchTab(sheetId: string, tab: string) {
   const url =
@@ -80,7 +93,16 @@ async function fetchTab(sheetId: string, tab: string) {
   const iPrinc = col((h) => h === 'Princ');
   const iBranch = col((h) => h === 'Branch');
   const iBe = col((h) => h === 'BE');
+  const iSup = col((h) => h === 'Sup');
+  const iChannel = col((h) => h === 'Channel');
+  const iName = col((h) => h === 'ชื่อพนักงานขาย');
+  const iGiv = col((h) => /^ยอดขาย GIV/.test(h));
+  const iNiv = col((h) => /^ยอดขาย NIV/.test(h));
+  const iUpdated = col((h) => h === 'เวลาอัพเดท');
+  // หัวคอลัมน์ SM ในชีตบางครั้งเพี้ยน (เช่นเหลือ "ำ") — ไม่เจอก็ใช้คอลัมน์แรก
+  const iSm = Math.max(col((h) => h === 'SM'), 0);
   if ([iTarget, iSeller, iPrinc, iBe].some((i) => i < 0)) return null;
+  const at = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
 
   // "Target Oct ‘26" → 2026-10
   const m = header[iTarget].match(/target\s+([a-z]{3})\D*(\d{2})/i);
@@ -94,11 +116,19 @@ async function fetchTab(sheetId: string, tab: string) {
     .map((r) => ({
       seller: r[iSeller].trim(),
       principal: r[iPrinc].trim(),
-      branch: iBranch >= 0 ? (r[iBranch] ?? '').trim() : '',
+      branch: at(r, iBranch),
       target: toNumber(r[iTarget]),
       be: toNumber(r[iBe]),
+      sm: at(r, iSm),
+      sup: at(r, iSup),
+      channel: at(r, iChannel),
+      name: at(r, iName),
+      sheetGiv: toNumber(r[iGiv]),
+      sheetNiv: toNumber(r[iNiv]),
     }));
-  return { ym, rows };
+  // เวลาอัปเดตข้อมูลของชีต อยู่แถวแรกของคอลัมน์ "เวลาอัพเดท" เช่น "10/30/2026 8:20:00"
+  const updatedAt = iUpdated >= 0 ? (body[0]?.[iUpdated] ?? '').trim() : '';
+  return { ym, rows, updatedAt };
 }
 
 // บริษัทของเซลล์ (ชีตไม่มีคอลัมน์บริษัท)
@@ -181,11 +211,23 @@ async function loadAll(): Promise<Map<string, TargetRow[]>> {
         principal: r.principal,
         target: r.target,
         be: r.be,
+        sm: r.sm,
+        sup: r.sup,
+        branch: r.branch,
+        channel: r.channel,
+        name: r.name,
+        order: j,
+        sheetGiv: r.sheetGiv,
+        sheetNiv: r.sheetNiv,
       }))
     );
+    if (tabs[i] === 'Estimate') sheetUpdatedAt = sheet.updatedAt;
   });
   return byMonth;
 }
+
+// เวลาอัปเดตของ tab Estimate (เดือนปัจจุบัน)
+let sheetUpdatedAt = '';
 
 async function allTargets() {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.byMonth;
@@ -210,11 +252,12 @@ export function preloadTargets() {
 export async function getTargets(
   fromYm: string,
   toYm: string
-): Promise<{ rows: TargetRow[]; months: string[] }> {
+): Promise<{ rows: TargetRow[]; months: string[]; updatedAt: string }> {
   const byMonth = await allTargets();
   const inRange = [...byMonth.entries()].filter(([ym]) => ym >= fromYm && ym <= toYm);
   return {
     rows: inRange.flatMap(([, rows]) => rows),
     months: inRange.map(([ym]) => ym).sort(),
+    updatedAt: sheetUpdatedAt,
   };
 }

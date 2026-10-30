@@ -7,32 +7,23 @@ import {
   LG014SellerRow,
 } from '@/app/lib/api';
 import { getTargets, preloadTargets, TargetRow } from '@/app/lib/targets';
-import SellerTable, { SellerDetailRow } from '@/app/components/SellerTable';
+import { timeGone, TimeGone } from '@/app/lib/workdays';
+import {
+  COMPANY_COLORS, fmtInt, fmtNum, fmtPct, fmtShort, paceColor, pctGrowth, pctOf,
+} from '@/app/lib/format';
+import { Growth, PaceBar, PaceChip } from '@/app/components/ui';
+import { FilterForm, LoadingDone, LogoutButton } from '@/app/components/Loading';
+import Image from 'next/image';
+import Link from 'next/link';
+import { requireEmployee } from '@/app/lib/session';
+import { logout } from '@/app/login/actions';
+import CompanyShare, { CompanyPrincRow } from '@/app/components/CompanyShare';
+import BranchView, { BranchSellerRow } from '@/app/components/BranchView';
+
 const COMPANY_ORDER = ['SDO', 'PDC', 'DC'];
 const THAI_MONTH_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
-const COMPANY_COLORS: Record<string, string> = {
-  SDO: '#2563EB',
-  PDC: '#16A34A',
-  DC:  '#8B5CF6',
-  default0: '#D97706',
-  default1: '#DB2777',
-  default2: '#0D9488',
-};
-
-const PRINC_PALETTE = ['#2563EB', '#16A34A', '#8B5CF6', '#D97706', '#DB2777', '#0D9488', '#DC2626', '#0EA5E9'];
-const PRINC_OTHER_COLOR = '#CBD5E1';
-
-function getCompanyColor(company: string, fallbackIdx: number) {
-  return COMPANY_COLORS[company.toUpperCase()] ??
-    Object.values(COMPANY_COLORS).slice(3)[fallbackIdx % 3] ?? '#6B7280';
-}
-
-type CompanyAgg = { company: string; GIV: number; NIV: number };
-type PrincAgg   = { princ: string; GIV: number; NIV: number };
 type TrendPoint = { month: string; GIV: number; NIV: number };
-// ── เพิ่ม type สำหรับ donut ──────────────────────────────────────
-type PrincDonutSlice = { label: string; giv: number; niv: number; color: string };
 
 // "2026-10" → "2025-10"
 function shiftYM(ym: string, years: number): string {
@@ -60,36 +51,7 @@ function formatDate(date: string): string {
   return `${d}/${m}/${y}`;
 }
 
-function fmtNum(n: number | null | undefined) {
-  if (n == null) return '-';
-  return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtShort(n: number): string {
-  if (Math.abs(n) >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (Math.abs(n) >= 1_000)     return (n / 1_000).toFixed(0) + 'K';
-  return n.toFixed(0);
-}
-
-function fmtPct(n: number | null) {
-  return n == null ? '–' : `${n.toFixed(1)}%`;
-}
-
-function growthColor(pct: number | null) {
-  if (pct == null) return '#9CA3AF';
-  return pct >= 0 ? '#16A34A' : '#DC2626';
-}
-
-function growthArrow(pct: number | null) {
-  if (pct == null) return '–';
-  return pct >= 0 ? `▲ ${pct.toFixed(2)}%` : `▼ ${Math.abs(pct).toFixed(2)}%`;
-}
-
 function normalizeCompany(c: string) { return (c ?? '').trim().toUpperCase(); }
-function companySortIndex(company: string) {
-  const idx = COMPANY_ORDER.indexOf(normalizeCompany(company));
-  return idx === -1 ? 999 : idx;
-}
 
 function sumGIVNIV(rows: LG014SellerRow[]) {
   return rows.reduce(
@@ -119,133 +81,71 @@ function mergeSellers(blocks: LG014SellerRow[][]): LG014SellerRow[] {
   return Array.from(map.values());
 }
 
-// ตารางรายคน: ยอดปีนี้ + ปีก่อน + Target / BE (รวมเซลล์ที่มี Target แต่ยังไม่มียอด)
-function buildSellerDetail(
-  cur: LG014SellerRow[], prev: LG014SellerRow[], targets: TargetRow[]
-): SellerDetailRow[] {
-  const map = new Map<string, SellerDetailRow>();
-  const get = (company: string, seller: string, princ: string) => {
-    const key = `${company}|${seller}`;
-    let row = map.get(key);
+type GivNiv = { GIV: number; NIV: number };
+type PeriodStat = {
+  label: string; range: string; prevRange: string; n: number;
+  cur: GivNiv; prev: GivNiv; hasPrev: boolean;
+  target: number; be: number; tg: TimeGone; targetComplete: boolean;
+};
+type CompanyStat = { company: string; cur: GivNiv; prev: GivNiv; target: number; be: number };
+
+// ยอดขายตามสาขา: ใช้ทุกอย่างตามชีต รวม GIV / NIV ด้วย
+// (SDO ในชีตรวมยอดเป็นรหัสเขต เช่น 501AD01 ส่วนในระบบแยกเป็นรหัส PS / MS ย่อย จึงจับคู่รายรหัสไม่ได้ — ยอดรวมบริษัทยังใกล้เคียงกัน)
+// ข้อมูลทีมใช้แถวของเดือนล่าสุดในช่วง
+function buildBranchRows(targets: TargetRow[]): BranchSellerRow[] {
+  const map = new Map<string, BranchSellerRow & { ym: string }>();
+  for (const t of targets) {
+    const key = `${t.company}|${t.seller}`;
+    const row = map.get(key);
     if (!row) {
-      row = { company, seller, princ, giv: 0, niv: 0, prevGIV: 0, prevNIV: 0, target: 0, be: 0 };
-      map.set(key, row);
+      map.set(key, {
+        ym: t.ym, company: t.company, sm: t.sm, sup: t.sup, princ: t.principal, branch: t.branch,
+        channel: t.channel, seller: t.seller, name: t.name, order: t.order,
+        target: t.target, be: t.be, giv: t.sheetGiv, niv: t.sheetNiv,
+      });
+    } else {
+      row.target += t.target;
+      row.be += t.be;
+      row.giv += t.sheetGiv;
+      row.niv += t.sheetNiv;
+      if (t.ym > row.ym) Object.assign(row, { ym: t.ym, sm: t.sm, sup: t.sup, branch: t.branch, channel: t.channel, name: t.name, order: t.order });
     }
-    return row;
-  };
-  for (const r of cur)  { const row = get(r.Company, r.Seller, r.Princ); row.giv += r.GIV; row.niv += r.NIV; }
-  for (const r of prev) { const row = get(r.Company, r.Seller, r.Princ); row.prevGIV += r.GIV; row.prevNIV += r.NIV; }
-  for (const t of targets) { const row = get(t.company, t.seller, t.principal); row.target += t.target; row.be += t.be; }
+  }
   return Array.from(map.values());
 }
 
-function aggregateByCompany(rows: LG014SellerRow[]): CompanyAgg[] {
-  const map = new Map<string, CompanyAgg>();
-  for (const r of rows) {
-    const key = r.Company;
-    const cur = map.get(key) ?? { company: key, GIV: 0, NIV: 0 };
-    cur.GIV += r.GIV ?? 0; cur.NIV += r.NIV ?? 0;
-    map.set(key, cur);
-  }
-  return Array.from(map.values()).sort(
-    (a, b) => companySortIndex(a.company) - companySortIndex(b.company) || a.company.localeCompare(b.company)
-  );
-}
-
-function aggregateByPrinc(rows: LG014SellerRow[]): PrincAgg[] {
-  const map = new Map<string, PrincAgg>();
-  for (const r of rows) {
-    const key = r.Princ || '(ไม่ระบุ)';
-    const cur = map.get(key) ?? { princ: key, GIV: 0, NIV: 0 };
-    cur.GIV += r.GIV ?? 0; cur.NIV += r.NIV ?? 0;
-    map.set(key, cur);
-  }
-  return Array.from(map.values()).sort((a, b) => b.NIV - a.NIV);
-}
-
-// ── สร้างข้อมูลสำหรับ donut ทั้งคู่ (GIV และ NIV ใช้ลำดับ Principal เดียวกัน) ──
-function buildPrincDonutData(rows: LG014SellerRow[], topN = 8): PrincDonutSlice[] {
-  const agg  = aggregateByPrinc(rows);
-  const top  = agg.slice(0, topN);
-  const rest = agg.slice(topN);
-  const restNIV = rest.reduce((s, p) => s + p.NIV, 0);
-  const restGIV = rest.reduce((s, p) => s + p.GIV, 0);
-
-  const data: PrincDonutSlice[] = top.map((p, i) => ({
-    label: p.princ,
-    giv:   p.GIV,
-    niv:   p.NIV,
-    color: PRINC_PALETTE[i % PRINC_PALETTE.length],
-  }));
-  if (restNIV > 0 || restGIV > 0) {
-    data.push({ label: 'อื่นๆ', giv: restGIV, niv: restNIV, color: PRINC_OTHER_COLOR });
-  }
-  return data;
-}
-
-function pctGrowth(cur: number, prev: number): number | null {
-  if (!prev) return null;
-  return Number((((cur - prev) / Math.abs(prev)) * 100).toFixed(2));
-}
-
-// ── Icons ─────────────────────────────────────────────────────────
-function IconGrid() {
+// ── ไอคอน KPI ──
+function Svg({ children }: { children: React.ReactNode }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="3" width="8" height="8" rx="2" fill="currentColor" />
-      <rect x="13" y="3" width="8" height="8" rx="2" fill="currentColor" opacity="0.55" />
-      <rect x="3" y="13" width="8" height="8" rx="2" fill="currentColor" opacity="0.55" />
-      <rect x="13" y="13" width="8" height="8" rx="2" fill="currentColor" opacity="0.55" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
     </svg>
   );
 }
-function IconShare() {
+const IconClock = () => <Svg><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Svg>;
+const IconTarget = () => <Svg><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" /></Svg>;
+const IconGauge = () => <Svg><path d="M4 18a8 8 0 1 1 16 0" /><path d="M12 18l4-6" /></Svg>;
+const IconTrend = () => <Svg><path d="M3 17l6-6 4 4 8-8" /><path d="M15 7h6v6" /></Svg>;
+
+// ── ไอคอน sidebar ──
+function IconChart() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="6" cy="12" r="2.4" />
-      <circle cx="18" cy="6" r="2.4" />
-      <circle cx="18" cy="18" r="2.4" />
-      <path d="M8.1 10.8 15.9 7.2M8.1 13.2 15.9 16.8" />
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
     </svg>
   );
 }
-function IconCalendar() {
+function IconLogout() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M3 10h18M8 3v4M16 3v4" />
-    </svg>
-  );
-}
-function IconTrend() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-      <path d="M3 17l6-6 4 4 8-8" />
-      <path d="M15 7h6v6" />
-    </svg>
-  );
-}
-function IconBuilding() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="4" y="3" width="10" height="18" rx="1" />
-      <rect x="14" y="9" width="6" height="12" rx="1" />
-      <path d="M7 7h1M10 7h1M7 11h1M10 11h1M7 15h1M10 15h1" />
-    </svg>
-  );
-}
-function IconPie() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 2v10l8.5 5A10 10 0 1 0 12 2Z" />
-      <path d="M21 12A9 9 0 0 0 12 3" />
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" />
     </svg>
   );
 }
 
-// ── Trend Line Chart ───────────────────────────────────────────────
+// ── กราฟแนวโน้ม: GIV เส้นทึบสีเข้ม / NIV เส้นประสีเทา (สีบริษัทสงวนไว้ให้วงล้อมบริษัท) ──
 function TrendLineChart({ points }: { points: TrendPoint[] }) {
-  const w = 640, h = 220, padL = 52, padR = 16, padT = 16, padB = 30;
+  const w = 1100, h = 260, padL = 60, padR = 64, padT = 16, padB = 32;
   const innerW = w - padL - padR;
   const innerH = h - padT - padB;
   const maxVal = Math.max(...points.map((p) => Math.max(p.NIV, p.GIV)), 1);
@@ -255,327 +155,255 @@ function TrendLineChart({ points }: { points: TrendPoint[] }) {
 
   const xFor = (i: number) => padL + i * stepX;
   const yFor = (v: number) => padT + (1 - v / maxVal) * innerH;
-
   const buildPath = (key: 'NIV' | 'GIV') =>
     points.map((p, i) => `${i === 0 ? 'M' : 'L'}${xFor(i)},${yFor(p[key])}`).join(' ');
+  const last = points.length - 1;
 
   return (
-    <div style={{ width: '100%', overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', maxHeight: 260 }}>
+    <figure className="trend">
+      <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label="ยอดขายรายเดือน GIV และ NIV">
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = padT + (1 - t) * innerH;
           return (
             <g key={t}>
-              <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="#EEF1F7" strokeWidth={1} />
-              <text x={padL - 8} y={y + 4} textAnchor="end" fill="#A2ABBD" fontSize={10}>
-                {fmtShort(maxVal * t)}
-              </text>
+              <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="#F0F0F3" strokeWidth={1} />
+              <text x={padL - 10} y={y + 4} textAnchor="end" className="axis">{fmtShort(maxVal * t)}</text>
             </g>
           );
         })}
-        <path d={buildPath('GIV')} fill="none" stroke="#16A34A" strokeWidth={2} strokeDasharray="5 4" opacity={0.85} />
+        <path d={buildPath('NIV')} fill="none" stroke="#94A0B4" strokeWidth={2} strokeDasharray="6 5" />
+        <path d={buildPath('GIV')} fill="none" stroke="#1F66E5" strokeWidth={2.5} strokeLinejoin="round" />
         {points.map((p, i) => (
-          <circle key={`g${i}`} cx={xFor(i)} cy={yFor(p.GIV)} r={3} fill="#16A34A" />
+          <g key={p.month}>
+            <circle cx={xFor(i)} cy={yFor(p.NIV)} r={4} fill="#FFFFFF" stroke="#94A0B4" strokeWidth={2} />
+            <circle cx={xFor(i)} cy={yFor(p.GIV)} r={4.5} fill="#FFFFFF" stroke="#1F66E5" strokeWidth={2.5} />
+            {/* พื้นที่ hover ใหญ่กว่าจุด — tooltip แบบ native */}
+            <rect x={xFor(i) - Math.max(stepX / 2, 20)} y={padT} width={Math.max(stepX, 40)} height={innerH} fill="transparent">
+              <title>{`${formatThaiMonth(p.month)}\nGIV ${fmtNum(p.GIV)}\nNIV ${fmtNum(p.NIV)}`}</title>
+            </rect>
+            <text x={xFor(i)} y={h - 10} textAnchor="middle" className="axis">
+              {multiYear ? `${monthAbbr(p.month)} ${p.month.slice(2, 4)}` : monthAbbr(p.month)}
+            </text>
+          </g>
         ))}
-        <path d={buildPath('NIV')} fill="none" stroke="#2563EB" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-        {points.map((p, i) => (
-          <circle key={`n${i}`} cx={xFor(i)} cy={yFor(p.NIV)} r={4.5} fill="#FFFFFF" stroke="#2563EB" strokeWidth={2.5} />
-        ))}
-        {points.map((p, i) => (
-          <text key={`x${i}`} x={xFor(i)} y={h - 8} textAnchor="middle" fill="#5B6478" fontSize={11} fontWeight={600}>
-            {multiYear ? `${monthAbbr(p.month)} ${p.month.slice(2, 4)}` : monthAbbr(p.month)}
-          </text>
-        ))}
+        {last >= 0 && (
+          <>
+            <text x={xFor(last) + 10} y={yFor(points[last].GIV) + 4} className="direct">GIV</text>
+            <text x={xFor(last) + 10} y={yFor(points[last].NIV) + 4} className="direct muted">NIV</text>
+          </>
+        )}
       </svg>
-      <div style={{ display: 'flex', gap: 18, marginTop: 4, flexWrap: 'wrap' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#5B6478', fontWeight: 600 }}>
-          <span style={{ width: 14, height: 3, background: '#2563EB', borderRadius: 2, display: 'inline-block' }} /> NIV
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#5B6478', fontWeight: 600 }}>
-          <span style={{ width: 14, height: 3, background: '#16A34A', borderRadius: 2, display: 'inline-block', opacity: 0.85 }} /> GIV
-        </span>
-      </div>
-    </div>
+      <figcaption className="legend">
+        <span><i className="legend-line" /> GIV</span>
+        <span><i className="legend-line dashed" /> NIV</span>
+        <span className="muted">ชี้ที่เดือนเพื่อดูตัวเลข</span>
+      </figcaption>
+    </figure>
   );
 }
 
-// ── Company Compare Chart ──────────────────────────────────────────
-function CompanyCompareChart({
-  current, previous, metric, accentColor,
-}: {
-  current: CompanyAgg[]; previous: CompanyAgg[]; metric: 'GIV' | 'NIV'; accentColor: string;
-}) {
-  const companies = current.length > 0 ? current.map((c) => c.company) : previous.map((c) => c.company);
-  const prevMap = new Map(previous.map((c) => [normalizeCompany(c.company), c]));
-  const curMap  = new Map(current.map((c) => [normalizeCompany(c.company), c]));
-
-  const data = companies.map((co) => ({
-    company: co,
-    prev: prevMap.get(normalizeCompany(co))?.[metric] ?? 0,
-    cur:  curMap.get(normalizeCompany(co))?.[metric] ?? 0,
-  }));
-
-  const maxVal = Math.max(...data.flatMap((d) => [d.prev, d.cur]), 1);
-  const chartH = 160;
-  const groupW = 88;
-  const barW   = 30;
-  const barGap = 6;
-  const padL   = 52;
-  const padB   = 30;
-  const totalW = padL + data.length * groupW + 16;
-
-  return (
-    <div style={{ width: '100%', overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${totalW} ${chartH + padB + 16}`} style={{ width: '100%', maxHeight: 220 }}>
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-          const y = 8 + (1 - t) * chartH;
-          return (
-            <g key={t}>
-              <line x1={padL} y1={y} x2={totalW - 8} y2={y} stroke="#EEF1F7" strokeWidth={1} />
-              <text x={padL - 8} y={y + 4} textAnchor="end" fill="#A2ABBD" fontSize={10}>
-                {fmtShort(maxVal * t)}
-              </text>
-            </g>
-          );
-        })}
-        {data.map((d, i) => {
-          const groupX = padL + i * groupW + (groupW - (barW * 2 + barGap)) / 2;
-          const prevH  = Math.max((d.prev / maxVal) * chartH, d.prev > 0 ? 2 : 0);
-          const curH   = Math.max((d.cur / maxVal) * chartH, d.cur > 0 ? 2 : 0);
-          const prevY  = 8 + chartH - prevH;
-          const curY   = 8 + chartH - curH;
-          return (
-            <g key={d.company}>
-              <rect x={groupX} y={prevY} width={barW} height={prevH} rx={5} fill="#CBD5E1" />
-              <rect x={groupX + barW + barGap} y={curY} width={barW} height={curH} rx={5} fill={accentColor} />
-              <text x={groupX + barW + barGap / 2} y={8 + chartH + padB - 8} textAnchor="middle" fill="#1A2540" fontSize={12} fontWeight={700}>
-                {d.company}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{ display: 'flex', gap: 18, marginTop: 4 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#5B6478', fontWeight: 600 }}>
-          <span style={{ width: 10, height: 10, background: '#CBD5E1', borderRadius: 3, display: 'inline-block' }} /> ปีก่อน
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#5B6478', fontWeight: 600 }}>
-          <span style={{ width: 10, height: 10, background: accentColor, borderRadius: 3, display: 'inline-block' }} /> ปัจจุบัน
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ── Donut Chart (แยก GIV / NIV) ─────────────────────────────────────
-// `metric` กำหนดว่าโดนัทวงนี้จะคำนวณสัดส่วน (มุม/สี/%) จากค่า GIV หรือ NIV
-function DonutChart({
-  data,
-  metric,
-}: {
-  data: PrincDonutSlice[];
-  metric: 'giv' | 'niv';
-}) {
-  const total = data.reduce((s, d) => s + d[metric], 0);
-  const cx = 90, cy = 90, r = 68, innerR = 44;
-  let cumAngle = -Math.PI / 2;
-
-  const metricLabel = metric === 'giv' ? 'GIV' : 'NIV';
-  const metricColor = metric === 'giv' ? '#16A34A' : '#2563EB';
-
-  function arc(startA: number, endA: number, outerR: number, innerRad: number) {
-    const x1 = cx + outerR * Math.cos(startA), y1 = cy + outerR * Math.sin(startA);
-    const x2 = cx + outerR * Math.cos(endA),   y2 = cy + outerR * Math.sin(endA);
-    const x3 = cx + innerRad * Math.cos(endA), y3 = cy + innerRad * Math.sin(endA);
-    const x4 = cx + innerRad * Math.cos(startA), y4 = cy + innerRad * Math.sin(startA);
-    const lg = endA - startA > Math.PI ? 1 : 0;
-    return `M${x1},${y1} A${outerR},${outerR} 0 ${lg},1 ${x2},${y2} L${x3},${y3} A${innerRad},${innerRad} 0 ${lg},0 ${x4},${y4} Z`;
-  }
-
-  const slices = data.map((d) => {
-    const val = d[metric];
-    const angle = total > 0 ? (val / total) * 2 * Math.PI : 0;
-    const startA = cumAngle;
-    cumAngle += angle;
-    return {
-      label: d.label,
-      color: d.color,
-      value: val,
-      startA,
-      endA: cumAngle,
-      pct: total > 0 ? ((val / total) * 100).toFixed(1) : '0.0',
-    };
-  });
-
-  return (
-    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      {/* Donut SVG */}
-      <div style={{ flexShrink: 0 }}>
-        <svg viewBox="0 0 180 180" style={{ width: 180, height: 180 }}>
-          <defs>
-            <filter id={`princ-donut-shadow-${metric}`}>
-              <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#1A2540" floodOpacity="0.15" />
-            </filter>
-          </defs>
-          {slices.map((s, i) => (
-            <path key={i} d={arc(s.startA, s.endA, r, innerR)} fill={s.color} filter={`url(#princ-donut-shadow-${metric})`} opacity={0.95} />
-          ))}
-          <text x={cx} y={cy - 6} textAnchor="middle" fill="#1A2540" fontSize={13} fontWeight={800}>{metricLabel}</text>
-          <text x={cx} y={cy + 12} textAnchor="middle" fill="#8A93A6" fontSize={10}>รวม</text>
-          <text x={cx} y={cy + 26} textAnchor="middle" fill="#1A2540" fontSize={10} fontWeight={700}>{fmtShort(total)}</text>
-        </svg>
-      </div>
-
-      {/* Legend — แสดงค่าตาม metric + % */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 220, flex: 1 }}>
-        {/* Header row */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '9px 1fr 1fr 48px',
-          gap: '0 10px',
-          alignItems: 'center',
-          padding: '0 0 6px',
-          borderBottom: '1px solid #EEF1F7',
-          marginBottom: 4,
-        }}>
-          <span />
-          <span style={{ fontSize: 10, color: '#A2ABBD', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Principal</span>
-          <span style={{ fontSize: 10, color: metricColor, fontWeight: 700, textAlign: 'right' }}>{metricLabel}</span>
-          <span style={{ fontSize: 10, color: '#A2ABBD', fontWeight: 700, textAlign: 'right' }}>%{metricLabel}</span>
-        </div>
-
-        {/* Data rows */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {slices.map((s) => (
-            <div key={s.label} style={{
-              display: 'grid',
-              gridTemplateColumns: '9px 1fr 1fr 48px',
-              gap: '0 10px',
-              alignItems: 'center',
-              padding: '5px 0',
-              borderRadius: 6,
-            }}>
-              {/* dot */}
-              <div style={{ width: 9, height: 9, borderRadius: '50%', background: s.color }} />
-              {/* label */}
-              <span style={{
-                fontSize: 12, color: '#1A2540', fontWeight: 700,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {s.label}
-              </span>
-              {/* value */}
-              <span style={{
-                fontSize: 11.5, color: metricColor, fontFamily: 'monospace',
-                fontWeight: 600, textAlign: 'right',
-              }}>
-                {fmtShort(s.value)}
-              </span>
-              {/* % */}
-              <span style={{
-                fontSize: 11, color: '#8A93A6', fontFamily: 'monospace',
-                textAlign: 'right',
-              }}>
-                {s.pct}%
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── ตารางสรุป: GIV / NIV · เทียบปีก่อน · เทียบ Target / BE (Target / BE ในชีตเป็นยอด GIV) ──
-function PctBar({ pct, color }: { pct: number | null; color: string }) {
-  return (
-    <span className="sum-pct">
-      <b style={{ color }}>{fmtPct(pct)}</b>
-      <span className="sum-bar"><div style={{ width: `${Math.min(pct ?? 0, 100)}%`, background: color }} /></span>
-    </span>
-  );
-}
-
-function GrowthPill({ pct }: { pct: number | null }) {
-  return (
-    <span className="sum-growth" style={{ color: growthColor(pct), background: pct == null ? '#F1F4FA' : pct >= 0 ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.1)' }}>
-      {growthArrow(pct)}
-    </span>
-  );
-}
-
-// ยอดที่ยังขาด (บวก) หรือเกินแล้ว
+// ยอดที่ยังขาด หรือเกินแล้ว
 function fmtGap(goal: number, actual: number) {
   if (!goal) return '–';
   const gap = goal - actual;
   return gap > 0 ? `ขาดอีก ${fmtNum(gap)}` : `เกินแล้ว ${fmtNum(-gap)}`;
 }
 
-function SummaryTable({
-  cur, prev, hasPrev, prevLabel, target, be, note,
-}: {
-  cur: { GIV: number; NIV: number }; prev: { GIV: number; NIV: number };
-  hasPrev: boolean; prevLabel: string; target: number; be: number; note: string | null;
-}) {
-  const metrics = [
-    { key: 'GIV' as const, desc: 'ยอดก่อนหักส่วนลด', color: '#16A34A' },
-    { key: 'NIV' as const, desc: 'ยอดสุทธิ', color: '#2563EB' },
-  ];
+// ── KPI แถวบน: Time gone เทียบยอดที่ทำได้ ──
+function PaceStrip({ tg, giv, target }: { tg: TimeGone; giv: number; target: number }) {
+  const achieved = pctOf(giv, target);
+  const gapPts = achieved == null ? null : achieved - tg.pct;
+  // คาดการณ์สิ้นช่วง = ยอดตอนนี้ ÷ สัดส่วนวันทำงานที่ผ่านไป (run-rate)
+  const projected = tg.pct > 0 && tg.pct < 100 ? giv / (tg.pct / 100) : null;
+  const projPct = projected != null ? pctOf(projected, target) : null;
   return (
-    <div className="sum-card">
-      <div className="sum-scroll">
-        <table className="sum-table">
-          <thead>
-            <tr>
-              <th>ยอดขาย (บาท)</th>
-              <th>ปีนี้</th>
-              <th className="grp-prev">ปีก่อน · {prevLabel}</th>
-              <th className="grp-prev">เติบโต (YoY)</th>
-              <th className="grp-target">Target</th>
-              <th className="grp-target">% ถึง Target</th>
-              <th className="grp-target">BE (คาดการณ์)</th>
-              <th className="grp-target">% BE / Target</th>
-            </tr>
-          </thead>
-          <tbody>
-            {metrics.map((m) => (
-              <tr key={m.key}>
-                <td>
-                  <div className="sum-metric">
-                    <span className="sum-dot" style={{ background: m.color }} />
-                    <div>
-                      <div className="sum-name" style={{ color: m.color }}>{m.key}</div>
-                      <div className="sum-desc">{m.desc}</div>
-                    </div>
-                  </div>
+    <section className="card kpis">
+      <div className="kpi">
+        <span className="kpi-top"><span className="kpi-ic"><IconClock /></span><span className="eyebrow">Time gone</span></span>
+        <span className="kpi-val">{tg.pct.toFixed(1)}%</span>
+        <span className="bar bar-sm"><span className="bar-fill" style={{ width: `${Math.min(tg.pct, 100)}%`, background: 'var(--primary)' }} /></span>
+        <span className="kpi-cap">{tg.elapsed} จาก {tg.total} วันทำงาน (จ.–ส.)</span>
+      </div>
+      <div className="kpi">
+        <span className="kpi-top"><span className="kpi-ic"><IconTarget /></span><span className="eyebrow">GIV ถึง Target</span></span>
+        <span className="kpi-val" style={{ color: paceColor(achieved, tg.pct) }}>{fmtPct(achieved)}</span>
+        <PaceBar pct={achieved} timeGonePct={tg.pct} size="sm" />
+        <span className="kpi-cap">{fmtShort(giv)} จาก {target ? fmtShort(target) : '–'}</span>
+      </div>
+      <div className="kpi">
+        <span className="kpi-top"><span className="kpi-ic"><IconGauge /></span><span className="eyebrow">เทียบ Time gone</span></span>
+        <span className="kpi-val" style={{ color: paceColor(achieved, tg.pct) }}>
+          {gapPts == null ? '–' : `${gapPts >= 0 ? '+' : ''}${gapPts.toFixed(1)} pts`}
+        </span>
+        <span><PaceChip pct={achieved} timeGonePct={tg.pct} /></span>
+        <span className="kpi-cap">ยอดที่ทำได้ เทียบเวลาที่ผ่านไป</span>
+      </div>
+      <div className="kpi">
+        <span className="kpi-top"><span className="kpi-ic"><IconTrend /></span><span className="eyebrow">คาดการณ์ GIV (run-rate)</span></span>
+        <span className="kpi-val">{projected != null ? fmtShort(projected) : 'ครบช่วงแล้ว'}</span>
+        <span className="kpi-cap">{projPct != null ? `≈ ${projPct.toFixed(1)}% ของ Target` : 'ไม่มีวันทำงานเหลือ'}</span>
+      </div>
+    </section>
+  );
+}
+
+function MetricCard({
+  label, sub, cur, prev, hasPrev, prevLabel, children,
+}: {
+  label: string; sub: string;
+  cur: number; prev: number; hasPrev: boolean; prevLabel: string;
+  children?: React.ReactNode;
+}) {
+  const diff = cur - prev;
+  return (
+    <section className="card metric">
+      <header className="metric-head">
+        <h3 className={`metric-name metric-${label.toLowerCase()}`}>{label}</h3>
+        <span className="card-sub">{sub}</span>
+      </header>
+      <div className="metric-val">{fmtNum(cur)}</div>
+      <div className="card-sub">บาท</div>
+
+      <dl className="rows">
+        <div className="rows-title eyebrow">เทียบปีก่อน · {prevLabel}</div>
+        <div className="row"><dt>Base ปีก่อน</dt><dd className={hasPrev ? '' : 'muted'}>{hasPrev ? fmtNum(prev) : 'ยังไม่มีข้อมูล'}</dd></div>
+        <div className="row"><dt>ส่วนต่าง</dt><dd>{hasPrev ? `${diff >= 0 ? '+' : ''}${fmtNum(diff)}` : '–'}</dd></div>
+        <div className="row"><dt>เติบโต (YoY)</dt><dd><Growth pct={hasPrev ? pctGrowth(cur, prev) : null} /></dd></div>
+      </dl>
+      {children}
+    </section>
+  );
+}
+
+// Target / BE ในชีตตั้งเป็นยอด GIV จึงมีเฉพาะการ์ด GIV
+function GivTargetGroup({ giv, target, be, note, tg }: { giv: number; target: number; be: number; note: string | null; tg: TimeGone }) {
+  const pct = pctOf(giv, target);
+  const bePct = pctOf(giv, be);
+  return (
+    <dl className="rows">
+      <div className="rows-title eyebrow">เทียบเป้า · Google Sheet</div>
+      <div className="row"><dt>Target</dt><dd>{target ? fmtNum(target) : '–'}</dd></div>
+      <div className="row row-bar">
+        <dt>GIV ถึง Target</dt>
+        <dd><PaceBar pct={pct} timeGonePct={tg.pct} /><b style={{ color: paceColor(pct, tg.pct) }}>{fmtPct(pct)}</b></dd>
+      </div>
+      <div className="row"><dt>BE (คาดการณ์)</dt><dd>{be ? fmtNum(be) : '–'}</dd></div>
+      <div className="row row-bar">
+        <dt>GIV ถึง BE</dt>
+        <dd><PaceBar pct={bePct} timeGonePct={tg.pct} /><b style={{ color: paceColor(bePct, tg.pct) }}>{fmtPct(bePct)}</b></dd>
+      </div>
+      <div className="row"><dt>BE เทียบ Target</dt><dd>{fmtPct(pctOf(be, target))}</dd></div>
+      <div className="row"><dt>GIV เทียบ Target</dt><dd>{fmtGap(target, giv)}</dd></div>
+      <div className="row"><dt>GIV เทียบ BE</dt><dd>{fmtGap(be, giv)}</dd></div>
+      {note && <div className="note">{note}</div>}
+    </dl>
+  );
+}
+
+// ── ตารางยอดสะสม / ค่าเฉลี่ย (ช่วงที่เลือก · 3 เดือน · 6 เดือน) แยก GIV / NIV ──
+// จอเล็กแสดงเป็นการ์ดรายช่วง (ไม่มี scroll ด้านข้าง)
+function PeriodTable({ metric, periods }: { metric: 'GIV' | 'NIV'; periods: PeriodStat[] }) {
+  const isGiv = metric === 'GIV';
+  return (
+    <section className="card">
+      <header className="card-head">
+        <div>
+          <h3 className="card-title">{metric} · ยอดสะสมและค่าเฉลี่ย</h3>
+          <p className="card-sub">{isGiv ? 'ยอดก่อนหักส่วนลด · เทียบ Base ปีก่อน / Target / BE' : 'ยอดสุทธิ · เทียบ Base ปีก่อน'}</p>
+        </div>
+      </header>
+      <table className="rtable periods">
+        <thead>
+          <tr>
+            <th>ช่วงเวลา</th>
+            <th className="r">ยอดรวม</th>
+            <th className="r">เฉลี่ย / เดือน</th>
+            <th className="r">Base ปีก่อน · YoY</th>
+            {isGiv && <>
+              <th className="r">Target · % ถึง</th>
+              <th className="r">BE · % ถึง</th>
+              <th className="r">Time gone</th>
+            </>}
+          </tr>
+        </thead>
+        <tbody>
+          {periods.map((p) => {
+            const cur = p.cur[metric];
+            const prev = p.prev[metric];
+            const tPct = pctOf(cur, p.target);
+            const bPct = pctOf(cur, p.be);
+            return (
+              <tr key={p.label}>
+                <td data-label="ช่วงเวลา">
+                  <span className="stack left"><b>{p.label}</b><span className="muted">{p.range}{p.n > 1 ? ` · ${p.n} เดือน` : ''}</span></span>
                 </td>
-                <td className="num big">{fmtNum(cur[m.key])}</td>
-                <td className={hasPrev ? 'num' : 'num muted'}>{hasPrev ? fmtNum(prev[m.key]) : 'ยังไม่มีข้อมูล'}</td>
-                <td className="num"><GrowthPill pct={hasPrev ? pctGrowth(cur[m.key], prev[m.key]) : null} /></td>
-                {m.key === 'GIV' ? (
-                  <>
-                    <td className="num grp-target">{target ? fmtNum(target) : '–'}</td>
-                    <td className="num grp-target"><PctBar pct={target ? (cur.GIV / target) * 100 : null} color="#16A34A" /></td>
-                    <td className="num grp-target">{be ? fmtNum(be) : '–'}</td>
-                    <td className="num grp-target"><PctBar pct={target ? (be / target) * 100 : null} color="#D97706" /></td>
-                  </>
-                ) : (
-                  <td colSpan={4} className="num muted grp-target">Target / BE ตั้งเป็นยอด GIV</td>
-                )}
+                <td data-label="ยอดรวม" className="r"><b className="num-lg">{fmtInt(cur)}</b></td>
+                <td data-label="เฉลี่ย / เดือน" className="r">{p.n ? fmtInt(cur / p.n) : '–'}</td>
+                <td data-label="Base ปีก่อน · YoY" className="r" title={p.prevRange}>
+                  <span className="stack"><span className="muted">{p.hasPrev ? fmtInt(prev) : 'ยังไม่มีข้อมูล'}</span><Growth pct={p.hasPrev ? pctGrowth(cur, prev) : null} /></span>
+                </td>
+                {isGiv && <>
+                  <td data-label="Target · % ถึง" className="r">
+                    <span className="stack">
+                      <span>{p.target ? fmtInt(p.target) : '–'}{!p.targetComplete && p.target ? <span className="warn-mark" title="บางเดือนในช่วงนี้ไม่มี Target ในชีต"> *</span> : null}</span>
+                      <span className="pct-cell"><PaceBar pct={tPct} timeGonePct={p.tg.pct} size="sm" /><b style={{ color: paceColor(tPct, p.tg.pct) }}>{fmtPct(tPct)}</b></span>
+                    </span>
+                  </td>
+                  <td data-label="BE · % ถึง" className="r">
+                    <span className="stack">
+                      <span>{p.be ? fmtInt(p.be) : '–'}</span>
+                      <span className="pct-cell"><PaceBar pct={bPct} timeGonePct={p.tg.pct} size="sm" /><b style={{ color: paceColor(bPct, p.tg.pct) }}>{fmtPct(bPct)}</b></span>
+                    </span>
+                  </td>
+                  <td data-label="Time gone" className="r muted">{p.tg.pct.toFixed(1)}%</td>
+                </>}
               </tr>
-            ))}
-            <tr className="sum-gap">
-              <td colSpan={4}>GIV เทียบเป้า</td>
-              <td colSpan={2} className="num">{fmtGap(target, cur.GIV)}</td>
-              <td colSpan={2} className="num">{fmtGap(be, cur.GIV)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div className="sum-foot">
-        <span>Target / BE จาก Google Sheet (BEST - Estimate)</span>
-        {note && <span className="warn">⚠ {note}</span>}
-      </div>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+// ── การ์ดรายบริษัท: ตัวเลขชัด ๆ แทนกราฟแท่ง ──
+function CompanyCards({ stats, tg, hasPrev }: { stats: CompanyStat[]; tg: TimeGone; hasPrev: boolean }) {
+  const totalGiv = stats.reduce((s, c) => s + c.cur.GIV, 0);
+  return (
+    <div className="grid-3">
+      {stats.map((c) => {
+        const tPct = pctOf(c.cur.GIV, c.target);
+        const bPct = pctOf(c.cur.GIV, c.be);
+        const col = (key: 'GIV' | 'NIV') => (
+          <div className="co-col">
+            <span className="eyebrow">{key}</span>
+            <span className="co-val">{fmtNum(c.cur[key])}</span>
+            <span className="co-sub">
+              <span className="muted">ปีก่อน {hasPrev ? fmtShort(c.prev[key]) : '–'}</span>
+              <Growth pct={hasPrev ? pctGrowth(c.cur[key], c.prev[key]) : null} />
+            </span>
+          </div>
+        );
+        return (
+          <section className="card co" key={c.company} style={{ '--co-color': COMPANY_COLORS[c.company] } as React.CSSProperties}>
+            <header className="co-head">
+              <h3 className="co-name"><span className="dot" style={{ background: COMPANY_COLORS[c.company] }} />{c.company}</h3>
+              <span className="pill">{totalGiv ? ((c.cur.GIV / totalGiv) * 100).toFixed(1) : '0.0'}% ของ GIV</span>
+            </header>
+            <div className="co-cols">{col('GIV')}{col('NIV')}</div>
+            <dl className="rows">
+              <div className="row row-bar">
+                <dt>ถึง Target {c.target ? fmtShort(c.target) : '–'}</dt>
+                <dd><PaceBar pct={tPct} timeGonePct={tg.pct} size="sm" /><b style={{ color: paceColor(tPct, tg.pct) }}>{fmtPct(tPct)}</b></dd>
+              </div>
+              <div className="row row-bar">
+                <dt>ถึง BE {c.be ? fmtShort(c.be) : '–'}</dt>
+                <dd><PaceBar pct={bPct} timeGonePct={tg.pct} size="sm" /><b style={{ color: paceColor(bPct, tg.pct) }}>{fmtPct(bPct)}</b></dd>
+              </div>
+            </dl>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -588,12 +416,13 @@ export default async function SalesOverviewPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  // ต้องเข้าสู่ระบบก่อน (ตรวจ cookie + พนักงานยังอยู่ในตาราง employees และ is_active)
+  const me = await requireEmployee();
   const params = await searchParams;
   const param = (k: string) => (typeof params[k] === 'string' ? (params[k] as string) : undefined);
 
   const companyParam  = (param('company') ?? 'all').toUpperCase();
   const companyFilter = COMPANY_ORDER.includes(companyParam) ? companyParam : 'all';
-  const view          = param('view') === 'seller' ? 'seller' : 'overview';
   const byCompany = <T,>(rows: T[], co: (r: T) => string) =>
     companyFilter === 'all' ? rows : rows.filter((r) => normalizeCompany(co(r)) === companyFilter);
 
@@ -603,11 +432,15 @@ export default async function SalesOverviewPage({
   let latestDate = '';
   let fromYM = '';
   let toYM = '';
+  let rangeMonths: string[] = [];
   let trendMonths: string[] = [];
-  let curByMonth: LG014SellerRow[][] = [];
-  let prevByMonth: LG014SellerRow[][] = [];
+  let last3: string[] = [];
+  let last6: string[] = [];
+  const curByYM  = new Map<string, LG014SellerRow[]>();
+  const prevByYM = new Map<string, LG014SellerRow[]>();
   let targetRows: TargetRow[] = [];
   let targetMonths: string[] = [];
+  let sheetUpdatedAt = '';
 
   try {
     preloadTargets();
@@ -619,502 +452,604 @@ export default async function SalesOverviewPage({
     toYM   = YM_RE.test(param('to') ?? '')   ? param('to')!   : latestMonth;
     if (fromYM > toYM) [fromYM, toYM] = [toYM, fromYM];
 
+    rangeMonths = months.filter((m) => m >= fromYM && m <= toYM);
     // กราฟแนวโน้ม = เดือนในช่วงที่เลือก ถ้าเลือกน้อยกว่า 3 เดือนให้แสดง 6 เดือนล่าสุดถึงเดือนปลายทาง
-    const rangeMonths = months.filter((m) => m >= fromYM && m <= toYM);
     trendMonths = rangeMonths.length >= 3 ? rangeMonths : months.filter((m) => m <= toYM).slice(-6);
+    // ย้อนหลัง 3 / 6 เดือน นับถึงเดือนปลายทางของ filter (รวมเดือนปัจจุบันแบบ MTD) เช่น ต.ค. → ส.ค.–ต.ค. / พ.ค.–ต.ค.
+    last6 = months.filter((m) => m <= toYM).slice(-6);
+    last3 = last6.slice(-3);
+    const fetchMonths = Array.from(new Set([...rangeMonths, ...trendMonths, ...last6])).sort();
 
-    // ดึงรายเดือน (ปีนี้ + เดือนเดียวกันปีก่อน) แล้วค่อยรวมเป็นช่วง — ตารางสรุปรายวันเร็วพอ
+    // เดือนปัจจุบันยังไม่จบ → เทียบปีก่อนแค่วันที่เท่ากัน (เช่น 1–30 ต.ค. เทียบ 1–30 ต.ค.) ไม่งั้นเทียบกับทั้งเดือนแล้วติดลบเกินจริง
+    const prevRange = (m: string) => {
+      const r = monthToRange(shiftYM(m, 1));
+      if (m === latestDate.slice(0, 7)) r.endDate = shiftYears(latestDate, 1);
+      return r;
+    };
+
+    // ดึงรายเดือน (ปีนี้ + ปีก่อน) แล้วค่อยรวมเป็นช่วง — ตารางสรุปรายวันเร็วพอ และ cache ไว้ 5 นาที
     const [cur, prev, targets] = await Promise.all([
-      Promise.all(trendMonths.map((m) => getLG014Summary(monthToRange(m)))),
-      Promise.all(trendMonths.map((m) => getLG014Summary(monthToRange(shiftYM(m, 1))))),
-      getTargets(fromYM, toYM).catch((err: unknown) => {
+      Promise.all(fetchMonths.map((m) => getLG014Summary(monthToRange(m)))),
+      Promise.all(fetchMonths.map((m) => getLG014Summary(prevRange(m)))),
+      getTargets(fetchMonths[0] ?? fromYM, toYM).catch((err: unknown) => {
         targetError = err instanceof Error ? err.message : 'อ่าน Target ไม่สำเร็จ';
-        return { rows: [] as TargetRow[], months: [] as string[] };
+        return { rows: [] as TargetRow[], months: [] as string[], updatedAt: '' };
       }),
     ]);
-    curByMonth  = cur.map((b) => b.bySeller);
-    prevByMonth = prev.map((b) => b.bySeller);
+    fetchMonths.forEach((m, i) => {
+      curByYM.set(m, cur[i].bySeller);
+      prevByYM.set(m, prev[i].bySeller);
+    });
     targetRows   = targets.rows;
     targetMonths = targets.months;
+    sheetUpdatedAt = targets.updatedAt;
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : 'เกิดข้อผิดพลาด';
   }
 
-  const inRange = (i: number) => trendMonths[i] >= fromYM && trendMonths[i] <= toYM;
-  const curRows  = byCompany(mergeSellers(curByMonth.filter((_, i) => inRange(i))), (r) => r.Company);
-  const prevRows = byCompany(mergeSellers(prevByMonth.filter((_, i) => inRange(i))), (r) => r.Company);
-  const targets  = byCompany(targetRows, (r) => r.company);
+  const pick = (map: Map<string, LG014SellerRow[]>, ms: string[]) =>
+    byCompany(mergeSellers(ms.map((m) => map.get(m) ?? [])), (r) => r.Company);
+  const targetsIn = (ms: string[]) => byCompany(targetRows.filter((t) => ms.includes(t.ym)), (r) => r.company);
 
-  const trendPoints: TrendPoint[] = trendMonths.map((m, i) => ({
+  const curRows  = pick(curByYM, rangeMonths);
+  const prevRows = pick(prevByYM, rangeMonths);
+  const targets  = targetsIn(rangeMonths);
+
+  const trendPoints: TrendPoint[] = trendMonths.map((m) => ({
     month: m,
-    ...sumGIVNIV(byCompany(curByMonth[i] ?? [], (r) => r.Company)),
+    ...sumGIVNIV(byCompany(curByYM.get(m) ?? [], (r) => r.Company)),
   }));
 
   const grandCurrent  = sumGIVNIV(curRows);
   const grandPrevious = sumGIVNIV(prevRows);
   const grandTarget   = sumTargets(targets);
-  // vw_lg014 มีข้อมูลตั้งแต่ ม.ค. 2026 — ช่วงที่ปีก่อนไม่มีข้อมูลให้บอกว่า "ยังไม่มีข้อมูล" แทนการโชว์ 0
+  // เดือนที่ปีก่อนไม่มีข้อมูลให้บอกว่า "ยังไม่มีข้อมูล" แทนการโชว์ 0
   const hasPrev = prevRows.length > 0;
+  const tg = latestDate ? timeGone(rangeMonths, latestDate) : { elapsed: 0, total: 0, pct: 0 };
 
   const rangeLabel     = fromYM ? formatRange(fromYM, toYM) : '';
-  const prevRangeLabel = fromYM ? formatRange(shiftYM(fromYM, 1), shiftYM(toYM, 1)) : '';
-  const missingTargetMonths = months.filter((m) => m >= fromYM && m <= toYM && !targetMonths.includes(m));
+  // ช่วงที่รวมเดือนปัจจุบัน (ยังไม่จบเดือน) ให้บอกวันที่ตัดด้วย เช่น "ต.ค. 2025 (ถึง 30/10/2025)"
+  const prevLabelOf = (ms: string[]) => !ms.length ? '' :
+    formatRange(shiftYM(ms[0], 1), shiftYM(ms[ms.length - 1], 1)) +
+    (ms[ms.length - 1] === latestDate.slice(0, 7) ? ` (ถึง ${formatDate(shiftYears(latestDate, 1))})` : '');
+  const prevRangeLabel = prevLabelOf(rangeMonths);
+  const missingTargetMonths = rangeMonths.filter((m) => !targetMonths.includes(m));
   const targetNote = targetError
     ? `อ่าน Target ไม่สำเร็จ: ${targetError}`
     : missingTargetMonths.length > 0
       ? `ไม่มี Target ในชีตของเดือน ${missingTargetMonths.map(formatThaiMonth).join(', ')}`
       : null;
 
-  const companyCurrent  = aggregateByCompany(curRows);
-  const companyPrevious = aggregateByCompany(prevRows);
-  const princDonutData  = buildPrincDonutData(curRows);
-  const sellerDetail    = buildSellerDetail(curRows, prevRows, targets);
+  // ── ยอดสะสม / ค่าเฉลี่ย: ช่วงที่เลือก, 3 เดือน, 6 เดือน ──
+  const periodStats = (label: string, ms: string[]): PeriodStat => {
+    const prevList = pick(prevByYM, ms);
+    const t = sumTargets(targetsIn(ms));
+    return {
+      label,
+      range: ms.length ? formatRange(ms[0], ms[ms.length - 1]) : '–',
+      prevRange: prevLabelOf(ms),
+      n: ms.length,
+      cur: sumGIVNIV(pick(curByYM, ms)),
+      prev: sumGIVNIV(prevList),
+      hasPrev: prevList.length > 0,
+      target: t.target,
+      be: t.be,
+      tg: latestDate ? timeGone(ms, latestDate) : { elapsed: 0, total: 0, pct: 0 },
+      targetComplete: ms.every((m) => targetMonths.includes(m)),
+    };
+  };
+  const periods = [
+    periodStats(`ช่วงที่เลือก`, rangeMonths),
+    periodStats('3 เดือนล่าสุด', last3),
+    periodStats('6 เดือนล่าสุด', last6),
+  ];
+
+  // ── รายบริษัท ──
+  const companies = companyFilter === 'all' ? COMPANY_ORDER : [companyFilter];
+  const companyStats: CompanyStat[] = companies.map((co) => {
+    const of = <T,>(rows: T[], get: (r: T) => string) => rows.filter((r) => normalizeCompany(get(r)) === co);
+    const t = sumTargets(of(targets, (r) => r.company));
+    return {
+      company: co,
+      cur: sumGIVNIV(of(curRows, (r) => r.Company)),
+      prev: sumGIVNIV(of(prevRows, (r) => r.Company)),
+      target: t.target,
+      be: t.be,
+    };
+  });
+
+  const princRows: CompanyPrincRow[] = curRows.map((r) => ({ company: r.Company, princ: r.Princ, giv: r.GIV, niv: r.NIV }));
+  const branchRows  = buildBranchRows(targets);
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://api.fontshare.com/v2/css?f[]=general-sans@600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600&family=IBM+Plex+Sans+Thai:wght@400;600&family=JetBrains+Mono&display=swap');
+
+        /* ── tokens: โครงตาม design.md, สีหลักตามโลโก้ RSM (#3078F8) ── */
+        :root {
+          --brand: #3078F8; --brand-50: #EEF4FF; --brand-100: #DBE7FE; --brand-700: #1A55C2; --brand-900: #0D2B6B;
+          --primary: #1F66E5; --primary-hover: #1A55C2; --ring: rgba(48,120,248,0.22);
+          --neutral: #94A0B4; --bg: #F3F6FB; --surface: #FFFFFF;
+          --text: #0F1B33; --text-2: #5B6478; --border: #E3E8F0; --track: #EDF1F7; --alt: #F1F5FB;
+          --success: #10B981; --warning: #F59E0B; --error: #EF4444;
+          --font-display: 'General Sans', 'IBM Plex Sans Thai', system-ui, sans-serif;
+          --font-body: 'DM Sans', 'IBM Plex Sans Thai', system-ui, sans-serif;
+          --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+        }
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #F4F7FC; font-family: 'Inter', 'Segoe UI', sans-serif; color: #1A2540; min-height: 100vh; }
+        body { background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 15px; font-weight: 400; line-height: 1.5; }
+        b, strong, th { font-weight: 600; }
+        .muted { color: var(--text-2); }
+        .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+        .dot { display: inline-block; width: 8px; height: 8px; border-radius: 9999px; margin-right: 6px; vertical-align: 1px; flex-shrink: 0; }
 
-        .app-shell { display: flex; min-height: 100vh; background: #F4F7FC; }
-
+        /* ── โครงหน้า: sidebar ซ้าย + เนื้อหา ── */
+        .shell { display: flex; min-height: 100vh; }
         .sidebar {
-          width: 76px; flex-shrink: 0;
-          background: #FFFFFF;
-          border-right: 1px solid #E7ECF5;
-          display: flex; flex-direction: column; align-items: center;
-          padding: 20px 0; gap: 22px;
-          position: sticky; top: 0; height: 100vh;
+          position: sticky; top: 0; height: 100vh; width: 248px; flex-shrink: 0; z-index: 20;
+          display: flex; flex-direction: column; gap: 24px; padding: 20px 16px;
+          background: linear-gradient(180deg, var(--primary) 0%, var(--brand-900) 100%); color: #FFFFFF;
         }
-        .sb-logo {
-          width: 44px; height: 44px; border-radius: 50%;
-          background: linear-gradient(135deg, #173B8C 0%, #2563EB 60%, #3B9EE8 100%);
-          color: #fff; font-weight: 800; font-size: 13px;
-          display: flex; align-items: center; justify-content: center;
-          box-shadow: 0 4px 12px rgba(37,99,235,0.3);
+        .sb-brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px; }
+        .sb-logo { width: 44px; height: 44px; border-radius: 9999px; box-shadow: 0 0 0 3px rgba(255,255,255,0.9); flex-shrink: 0; }
+        .sb-brand-text { display: flex; flex-direction: column; min-width: 0; }
+        .sb-brand-text b { font: 600 16px var(--font-display); letter-spacing: 0.02em; }
+        .sb-brand-text span { font-size: 12px; color: rgba(255,255,255,0.72); }
+        .sb-group { display: flex; flex-direction: column; gap: 4px; }
+        .sb-group-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.6); padding: 0 12px 6px; }
+        .sb-item {
+          display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;
+          color: rgba(255,255,255,0.85); text-decoration: none; font-size: 14px; transition: background .2s, color .2s;
         }
-        .sb-nav-item {
-          width: 44px; height: 44px; border-radius: 14px;
-          display: flex; align-items: center; justify-content: center;
-          color: #8A93A6; cursor: pointer; transition: all .15s;
-        }
-        .sb-nav-item.active {
-          background: linear-gradient(135deg, #2563EB 0%, #3B9EE8 100%);
-          color: #fff;
-          box-shadow: 0 4px 14px rgba(37,99,235,0.3);
-        }
-        .sb-nav-item:not(.active):hover { background: #F1F4FA; color: #2563EB; }
+        .sb-item:hover { background: rgba(255,255,255,0.12); color: #FFFFFF; }
+        .sb-item.active { background: #FFFFFF; color: var(--primary); font-weight: 600; box-shadow: 0 6px 16px rgba(13,43,107,0.25); }
+        .sb-item svg { flex-shrink: 0; }
         .sb-spacer { flex: 1; }
-
-        .main-area { flex: 1; min-width: 0; }
-
-        .top-header {
-          background: #FFFFFF;
-          border-bottom: 1px solid #E7ECF5;
-          padding: 18px 32px;
-          display: flex; align-items: center; justify-content: space-between;
-          gap: 20px; flex-wrap: wrap;
+        .sb-logout {
+          margin-left: auto; width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center;
+          border: none; border-radius: 10px; background: rgba(255,255,255,0.14); color: #FFFFFF; cursor: pointer; transition: background .2s;
         }
-        .th-breadcrumb { font-size: 12px; font-weight: 700; color: #8A93A6; margin-bottom: 4px; }
-        .th-title { font-size: 22px; font-weight: 800; color: #1A2540; letter-spacing: -0.3px; }
-        .th-sub { font-size: 12.5px; font-weight: 700; color: #2563EB; margin-top: 4px; }
-        .th-right { display: flex; align-items: center; gap: 14px; }
-        .th-search {
-          display: flex; align-items: center; gap: 8px;
-          background: #F4F7FC; border: 1px solid #E7ECF5; border-radius: 12px;
-          padding: 9px 14px; color: #A2ABBD; min-width: 220px;
+        .sb-logout:hover { background: #EF4444; }
+        .sb-logout:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(255,255,255,0.5); }
+        .hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+        .hero-logout {
+          display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 9999px; cursor: pointer;
+          border: 1px solid rgba(255,255,255,0.45); background: rgba(255,255,255,0.14); color: #FFFFFF; font: 600 14px var(--font-body); transition: background .2s, color .2s;
         }
-        .th-search input {
-          border: none; outline: none; background: transparent;
-          font-size: 13px; color: #1A2540; width: 100%; font-family: inherit;
-        }
-        .th-search input::placeholder { color: #A2ABBD; }
-        .th-avatar { display: flex; align-items: center; gap: 10px; }
-        .th-avatar-circle {
-          width: 38px; height: 38px; border-radius: 50%;
-          background: linear-gradient(135deg, #173B8C 0%, #3B9EE8 100%);
-          color: #fff; font-weight: 800; font-size: 12px;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .th-avatar-name { font-size: 13px; font-weight: 700; color: #1A2540; line-height: 1.3; }
-        .th-avatar-role { font-size: 11px; color: #A2ABBD; }
-
-        .page-body { padding: 24px 32px 48px; max-width: 1360px; margin: 0 auto; }
-
-        .view-row {
-          background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px;
-          padding: 14px 20px; display: flex; align-items: center; justify-content: space-between;
-          gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
-          box-shadow: 0 4px 16px rgba(26,37,64,0.05);
-        }
-        .view-row-sub { font-size: 12px; color: #A2ABBD; margin-top: 2px; }
-        .date-pill {
-          display: flex; align-items: center; gap: 8px;
-          background: #F4F7FC; border: 1px solid #E7ECF5; border-radius: 12px;
-          padding: 9px 14px; font-size: 13px; font-weight: 700; color: #1A2540;
+        .hero-logout:hover { background: #FFFFFF; color: var(--error); }
+        .hero-logout:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(255,255,255,0.5); }
+        @media (max-width: 640px) { .hero-side { align-items: flex-start; width: 100%; } }
+        .sb-user { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.1); min-width: 0; }
+        .sb-avatar { width: 34px; height: 34px; border-radius: 9999px; background: #FFFFFF; color: var(--primary); display: grid; place-items: center; font: 600 15px var(--font-body); flex-shrink: 0; }
+        .sb-user-text { display: flex; flex-direction: column; min-width: 0; }
+        .sb-user-text b { font-size: 13px; color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sb-user-text span { font-size: 11px; color: rgba(255,255,255,0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .main { flex: 1; min-width: 0; }
+        @media (max-width: 960px) {
+          .sidebar { width: 72px; padding: 16px 10px; align-items: center; }
+          .sb-brand { padding: 0; }
+          .sb-brand-text, .sb-group-title, .sb-label, .sb-user-text { display: none; }
+          .sb-user { padding: 6px; background: transparent; flex-direction: column; }
+          .sb-logout { margin-left: 0; }
+          .sb-item { justify-content: center; padding: 12px; }
         }
 
-        /* ── toggle ภาพรวม / รายคน (radio อยู่ในฟอร์ม → กดค้นหาแล้วยังอยู่หน้าเดิม) ── */
-        .seg { display: inline-flex; background: #F1F4FA; border-radius: 12px; padding: 4px; gap: 4px; }
-        .seg input { position: absolute; opacity: 0; pointer-events: none; }
-        .seg label {
-          padding: 8px 18px; border-radius: 9px; font-size: 13px; font-weight: 700; color: #5B6478;
-          cursor: pointer; transition: all .15s; user-select: none;
+        /* ── segmented / tabs (สิ่งที่กดได้ = สีแบรนด์) ── */
+        .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--alt); border-radius: 8px; }
+        .seg button { border: none; background: transparent; font: 400 13px var(--font-body); color: var(--text-2); padding: 6px 14px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: color .2s, background .2s; }
+        .seg button:hover { color: var(--text); }
+        .seg button.on { background: var(--primary); color: #FFFFFF; font-weight: 600; }
+        .seg button:focus-visible { box-shadow: 0 0 0 3px var(--ring); }
+
+        /* ── layout ── */
+        .container { max-width: 1280px; margin: 0 auto; padding: 0 32px 64px; display: flex; flex-direction: column; gap: 24px; }
+        /* หัวหน้าเพจสีแบรนด์ + ฟอร์ม filter วางทับขอบล่าง */
+        .hero {
+          position: relative; overflow: hidden; color: #FFFFFF; padding: 32px 32px 72px;
+          background: linear-gradient(120deg, var(--primary) 0%, var(--brand) 60%, #5B9BFF 100%);
         }
-        .seg input:checked + label { background: #FFFFFF; color: #2563EB; box-shadow: 0 2px 8px rgba(26,37,64,0.1); }
-        .seg input:focus-visible + label { outline: 2px solid #3B9EE8; }
-        .page-body:has(#view-seller:checked) .view-overview { display: none; }
-        .page-body:has(#view-overview:checked) .view-seller { display: none; }
+        .hero::after { content: ''; position: absolute; right: -80px; top: -120px; width: 360px; height: 360px; border-radius: 9999px; background: rgba(255,255,255,0.08); }
+        .hero::before { content: ''; position: absolute; right: 160px; bottom: -160px; width: 280px; height: 280px; border-radius: 9999px; background: rgba(255,255,255,0.06); }
+        .hero-inner { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+        .hero .crumb { font-size: 13px; color: rgba(255,255,255,0.75); }
+        .hero h1 { font: 600 32px/1.15 var(--font-display); letter-spacing: -0.03em; margin-top: 4px; }
+        .hero p { color: rgba(255,255,255,0.85); font-size: 15px; margin-top: 6px; }
+        .hero-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+        .hero-chip { font-size: 13px; padding: 6px 12px; border-radius: 9999px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.25); white-space: nowrap; }
+        .filters-wrap { margin-top: -48px; position: relative; z-index: 2; }
+        .filters-wrap .card { box-shadow: 0 12px 32px rgba(13,43,107,0.12); }
+        .section { display: flex; flex-direction: column; gap: 16px; }
+        .section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .section-title h2 { font: 600 20px var(--font-display); letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; }
+        .section-title h2::before { content: ''; width: 4px; height: 20px; border-radius: 9999px; background: var(--brand); }
+        .section-title span { font-size: 13px; color: var(--text-2); }
+        .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+        @media (max-width: 1024px) { .grid-3 { grid-template-columns: 1fr; } }
+        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
 
-        .filter-card {
-          background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px;
-          padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;
-          margin-bottom: 20px; box-shadow: 0 4px 16px rgba(26,37,64,0.05);
+        /* ── card: แบน มีเส้นขอบ ไม่มีเงา (เงาเฉพาะของที่กดได้ตอน hover) ── */
+        .card { container: card / inline-size; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; min-width: 0; box-shadow: 0 1px 2px rgba(15,27,51,0.04), 0 6px 20px rgba(15,27,51,0.04); }
+        .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+        .card-title { font: 600 16px var(--font-display); letter-spacing: -0.02em; }
+        .card-sub { font-size: 13px; color: var(--text-2); }
+        .empty { color: var(--text-2); text-align: center; padding: 32px 0; font-size: 13px; }
+        .pill { font-size: 12px; color: var(--text-2); background: var(--alt); border-radius: 9999px; padding: 2px 10px; white-space: nowrap; }
+        .note { font-size: 12px; color: #92400E; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 8px 12px; }
+
+        /* ── ฟอร์ม ── */
+        .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+        .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .field-label { font-size: 12px; color: var(--text-2); }
+        .field select, .input {
+          height: 38px; padding: 0 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+          font: 400 14px var(--font-body); color: var(--text); outline: none; min-width: 150px; transition: border-color .2s, box-shadow .2s;
         }
-        .fg { display: flex; flex-direction: column; gap: 6px; }
-        .fg label { font-size: 11px; color: #8A93A6; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
-        .fg input[type="month"], .fg input[type="text"], .fg select {
-          padding: 9px 13px; border: 1.5px solid #DDE4F0; border-radius: 10px;
-          font-size: 13.5px; color: #1A2540; background: #F8FAFD; outline: none;
-          min-width: 140px; transition: border-color .2s, box-shadow .2s; font-family: inherit;
+        .field select:focus, .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+        .field select:disabled { background: var(--alt); color: var(--neutral); }
+        .arrow { color: var(--neutral); padding-bottom: 8px; }
+        .filters-hint { font-size: 12px; color: var(--neutral); margin-left: auto; padding-bottom: 10px; }
+        .btn { height: 38px; padding: 0 16px; border-radius: 6px; font: 600 14px var(--font-body); cursor: pointer; transition: transform .2s, box-shadow .2s, background .2s; }
+        .btn:hover { transform: translateY(-1px); }
+        .btn-primary { background: var(--primary); color: #FAFAFA; border: 1px solid var(--primary); }
+        .btn-primary:hover { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(99,102,241,0.35); }
+        .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+        .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+
+        /* ── แท่ง % + ขีด Time gone + ป้ายสถานะ ── */
+        .bar { position: relative; display: block; width: 100%; background: var(--track); border-radius: 9999px; }
+        .bar-md { height: 8px; }
+        .bar-sm { height: 6px; }
+        .bar-fill { position: absolute; inset: 0 auto 0 0; border-radius: 9999px; }
+        .bar-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); }
+        .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 10px; border-radius: 9999px; white-space: nowrap; }
+        .chip-dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+        .chip-ok   { color: #047857; background: #ECFDF5; }
+        .chip-warn { color: #B45309; background: #FFFBEB; }
+        .chip-bad  { color: #B91C1C; background: #FEF2F2; }
+        .chip-none { color: var(--text-2); background: var(--alt); }
+        .growth { font-size: 12px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .growth-up { color: #047857; }
+        .growth-down { color: #B91C1C; }
+        .growth-none { color: var(--neutral); }
+        .pct-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; }
+        .pct-cell .bar { width: 64px; flex-shrink: 0; }
+        .pct-cell b { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+
+        /* ── KPI แถวบน ── */
+        .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0; }
+        .kpi { display: flex; flex-direction: column; gap: 8px; padding: 20px 24px; border-left: 1px solid var(--border); min-width: 0; }
+        .kpi:first-child { border-left: none; }
+        .kpi-val { font: 600 28px/1.1 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+        .kpi-top { display: flex; align-items: center; gap: 10px; }
+        .kpi-ic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--brand-50); color: var(--primary); flex-shrink: 0; }
+        .kpi-cap { font-size: 12px; color: var(--text-2); }
+        @media (max-width: 900px) {
+          .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .kpi:nth-child(3) { border-left: none; }
+          .kpi:nth-child(n+3) { border-top: 1px solid var(--border); }
         }
-        .fg input:focus, .fg select:focus { border-color: #3B9EE8; box-shadow: 0 0 0 3px rgba(59,158,232,0.15); background: #FFFFFF; }
-        .fg-arrow { align-self: flex-end; padding: 10px 0; color: #A2ABBD; font-weight: 700; }
-        .btn-search {
-          padding: 9px 20px; background: linear-gradient(135deg, #2563EB 0%, #3B9EE8 100%);
-          color: #fff; border: none; border-radius: 10px; font-size: 13.5px; font-weight: 700;
-          cursor: pointer; align-self: flex-end; box-shadow: 0 4px 14px rgba(37,99,235,0.3);
-          transition: opacity .2s, transform .1s; font-family: inherit;
+
+        /* ── การ์ด GIV / NIV ── */
+        .metric-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+        .metric-name { font: 600 14px var(--font-display); letter-spacing: 0.02em; padding: 4px 12px; border-radius: 8px; }
+        .metric-giv { background: var(--primary); color: #FFFFFF; }
+        .metric-niv { background: var(--brand-100); color: var(--brand-700); }
+        .metric-val { font: 600 clamp(26px, 3vw, 36px)/1.1 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        .rows { display: flex; flex-direction: column; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+        .rows-title { margin-bottom: 4px; }
+        .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; font-size: 14px; }
+        .row + .row { border-top: 1px solid #F4F4F6; }
+        .row dt { color: var(--text-2); }
+        .row dd { font-variant-numeric: tabular-nums; text-align: right; }
+        .row dd.muted { color: var(--neutral); }
+        .row-bar dd { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: flex-end; }
+        .row-bar dd .bar { max-width: 200px; }
+        .row-bar dd b { min-width: 52px; text-align: right; }
+
+        /* ── รายบริษัท ── */
+        .co { display: flex; flex-direction: column; gap: 4px; }
+        .co-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+        .card.co { border-top: 4px solid var(--co-color); }
+        .co-name { font: 600 18px var(--font-display); letter-spacing: -0.02em; display: flex; align-items: center; }
+        .co-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .co-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .co-col + .co-col { border-left: 1px solid var(--border); padding-left: 16px; }
+        .co-val { font: 600 20px var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .co-sub { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+        .co .rows { margin-top: 12px; }
+        .co .row { font-size: 13px; }
+
+        /* ── ตาราง responsive: จอใหญ่ = ตาราง, จอเล็ก = การ์ดรายแถว (ไม่มี scroll ด้านข้าง) ── */
+        .rtable { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+        .rtable th { text-align: left; font-size: 12px; color: var(--text-2); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .rtable td { padding: 12px; border-bottom: 1px solid #F4F4F6; vertical-align: middle; }
+        .rtable tbody tr { transition: background .2s; }
+        .rtable tbody tr:hover { background: #FAFAFB; }
+        .rtable tfoot td { border-top: 1px solid var(--border); border-bottom: none; background: #FAFAFB; }
+        .rtable .r { text-align: right; }
+        .rtable th.sortable { cursor: pointer; user-select: none; }
+        .rtable th.sortable:hover, .rtable th.sorted { color: var(--primary); }
+        .rtable .strong { font-weight: 600; }
+        .rank-col { width: 36px; color: var(--neutral); }
+        .stack { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+        .stack.left { align-items: flex-start; }
+        .num-lg { font: 600 15px var(--font-display); letter-spacing: -0.01em; }
+        .who { display: flex; flex-direction: column; gap: 2px; }
+        .code { font-family: var(--font-mono); font-size: 12.5px; color: var(--text); }
+        .warn-mark { color: #B45309; }
+        .periods tbody tr:first-child td { background: #FAFAFB; }
+        .sort-mobile { display: none; }
+        @container card (max-width: 800px) {
+          .rtable thead { display: none; }
+          .rtable, .rtable tbody, .rtable tfoot, .rtable tr, .rtable td { display: block; width: 100%; }
+          .rtable tr { border: 1px solid var(--border); border-radius: 12px; padding: 8px 14px; margin-bottom: 10px; background: var(--surface); }
+          .rtable tfoot tr { background: #FAFAFB; }
+          .rtable td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border: none; text-align: right; }
+          .rtable td + td { border-top: 1px solid #F4F4F6; }
+          .rtable td::before { content: attr(data-label); color: var(--text-2); font-size: 12px; text-align: left; flex-shrink: 0; }
+          .rtable td:not([data-label])::before { content: none; }
+          .rtable .rank-col { display: none; }
+          .rtable .stack { align-items: flex-end; }
+          .rtable .pct-cell { width: auto; }
+          .sort-mobile { display: block; }
         }
-        .btn-search:hover { opacity: .92; transform: translateY(-1px); }
-        .filter-hint { font-size: 11.5px; color: #A2ABBD; align-self: center; }
 
-        .sec-label { display: flex; align-items: center; gap: 10px; margin: 24px 0 12px; }
-        .sec-label-text { font-size: 11px; font-weight: 800; color: #8A93A6; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
-        .sec-label::before, .sec-label::after { content: ''; flex: 1; height: 1px; background: #E7ECF5; }
+        /* ── toolbar ── */
+        .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+        .toolbar .search { flex: 1; min-width: 200px; }
+        .more { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; padding-top: 16px; font-size: 13px; }
 
-        /* ── ตารางสรุป GIV / NIV · ปีก่อน · Target / BE ── */
-        .sum-card { background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; box-shadow: 0 4px 16px rgba(26,37,64,0.05); margin-bottom: 14px; overflow: hidden; }
-        .sum-scroll { overflow-x: auto; }
-        table.sum-table { min-width: 860px; font-size: 13.5px; }
-        .sum-table thead th { text-align: right; }
-        .sum-table thead th:first-child { text-align: left; }
-        .sum-table thead th.grp-prev { color: #A2ABBD; }
-        .sum-table thead th.grp-target { color: #B45309; background: #FFFBF3; }
-        .sum-table td.grp-target { background: #FFFDF8; }
-        .sum-table tbody td { padding: 14px; }
-        .sum-table td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
-        .sum-table td.big { font-size: 17px; font-weight: 800; }
-        .sum-table td.muted { color: #A2ABBD; font-weight: 600; font-size: 12.5px; }
-        .sum-metric { display: flex; align-items: center; gap: 10px; }
-        .sum-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-        .sum-name { font-weight: 800; font-size: 14px; }
-        .sum-desc { font-size: 11px; color: #A2ABBD; }
-        .sum-pct { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 5px; min-width: 90px; }
-        .sum-bar { width: 90px; height: 5px; background: #EEF1F7; border-radius: 99px; overflow: hidden; }
-        .sum-bar > div { height: 100%; border-radius: 99px; }
-        .sum-growth { font-weight: 800; font-size: 12.5px; padding: 3px 10px; border-radius: 99px; }
-        .sum-gap td { background: #FAFBFD; color: #5B6478; font-size: 12.5px; }
-        .sum-foot { display: flex; gap: 8px 16px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid #EFF2F8; font-size: 11.5px; color: #A2ABBD; }
-        .sum-foot .warn { color: #B45309; }
+        /* ── กราฟแนวโน้ม ── */
+        .trend svg { width: 100%; height: auto; display: block; }
+        .trend .axis { font: 400 11px var(--font-body); fill: var(--text-2); }
+        .trend .direct { font: 600 12px var(--font-body); fill: var(--primary); }
+        .trend .direct.muted { fill: var(--text-2); }
+        .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; margin-top: 8px; }
+        .legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .legend-line { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--primary); }
+        .legend-line.dashed { border-top: 2px dashed var(--neutral); }
 
-        .chart-strip-1 { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 14px; }
-        .chart-strip-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
-        @media (max-width: 780px) { .chart-strip-2 { grid-template-columns: 1fr; } }
-        .chart-card { background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; padding: 20px 22px; box-shadow: 0 4px 16px rgba(26,37,64,0.05); }
-        .chart-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-        .chart-card-icon {
-          width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
-          background: rgba(37,99,235,0.1); color: #2563EB; flex-shrink: 0;
+        /* ── สัดส่วน บริษัท → Principal ── */
+        .share-top { display: grid; grid-template-columns: 180px 1fr; gap: 24px; align-items: center; }
+        .share-donut { width: 180px; height: 180px; }
+        .share-slice { cursor: pointer; transition: opacity .2s; }
+        .donut-cap { font: 400 11px var(--font-body); fill: var(--text-2); }
+        .donut-val { font: 600 20px var(--font-display); fill: var(--text); letter-spacing: -0.02em; }
+        .share-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+        .tile {
+          display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 14px 16px; min-width: 0;
+          background: var(--surface); border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+          font: 400 13px var(--font-body); color: var(--text); transition: transform .2s, box-shadow .2s, border-color .2s;
         }
-        .chart-card-title { font-size: 14.5px; font-weight: 800; color: #1A2540; }
-        .chart-card-sub { font-size: 11.5px; color: #A2ABBD; }
-
-        .co-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-        .co-card {
-          background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; padding: 16px 18px;
-          border-left: 3px solid var(--co-color, #3B9EE8); box-shadow: 0 4px 16px rgba(26,37,64,0.05);
-          transition: transform .2s, box-shadow .2s;
+        .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+        .tile.on { border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+        .tile:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+        .tile-name { font-weight: 600; display: flex; align-items: center; }
+        .tile-val { font: 600 22px var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+        .tile-meta { font-size: 12px; color: var(--text-2); }
+        .tile-share { height: 4px; background: var(--track); border-radius: 9999px; overflow: hidden; margin-top: 4px; }
+        .tile-share > span { display: block; height: 100%; }
+        .share-detail { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+        .share-detail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .share-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--text-2); }
+        .share-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+        .princ-grid { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0 32px; }
+        .princ { display: grid; grid-template-columns: 24px 1fr auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #F4F4F6; }
+        .princ-rank { font-size: 12px; color: var(--neutral); text-align: right; font-variant-numeric: tabular-nums; }
+        .princ-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .princ-name { font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+        .princ-co { font-size: 11px; font-weight: 600; }
+        .princ-bar { height: 4px; background: var(--track); border-radius: 9999px; overflow: hidden; }
+        .princ-bar > span { display: block; height: 100%; border-radius: 9999px; }
+        .princ-num { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+        .princ-val { font-size: 13px; font-weight: 600; }
+        .princ-share { font-size: 12px; color: var(--text-2); }
+        @media (max-width: 900px) {
+          .share-top { grid-template-columns: 1fr; justify-items: center; }
+          .share-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
         }
-        .co-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(26,37,64,0.09); }
-        .co-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-        .co-name { font-size: 14.5px; font-weight: 800; color: var(--co-color, #2563EB); display: flex; align-items: center; gap: 6px; }
-        .co-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #F1F4FA; }
-        .co-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
-        .co-metric-label { font-size: 10.5px; color: #8A93A6; margin-bottom: 3px; }
-        .co-metric-val   { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-        .co-metric-val.giv { color: #16A34A; }
-        .co-metric-val.niv { color: #2563EB; }
-        .co-metric-val.dim { color: #A2ABBD; font-size: 13px; }
-        .co-metric-val.amber { color: #B45309; font-size: 13px; }
 
-        .tbl-card { background: #FFFFFF; border: 1px solid #E7ECF5; border-radius: 16px; overflow: auto; box-shadow: 0 4px 16px rgba(26,37,64,0.05); }
-        .tbl-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 0; gap: 12px; flex-wrap: wrap; }
-        .tbl-title  { font-size: 14px; font-weight: 700; color: #1A2540; }
-        .tbl-tools  { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .tbl-count  { font-size: 12px; font-weight: 700; color: #2563EB; background: rgba(37,99,235,0.08); padding: 3px 10px; border-radius: 99px; border: 1px solid rgba(37,99,235,0.18); }
-        .tbl-select { padding: 8px 12px; border: 1px solid #E7ECF5; border-radius: 10px; font-size: 13px; color: #1A2540; background: #F4F7FC; font-family: inherit; }
-        .tbl-btn { padding: 8px 14px; border: 1px solid #E7ECF5; border-radius: 10px; font-size: 13px; font-weight: 700; color: #2563EB; background: #FFFFFF; cursor: pointer; font-family: inherit; }
-        .tbl-btn:hover { background: #F1F4FA; }
-        .pills { display: inline-flex; gap: 4px; background: #F1F4FA; border-radius: 10px; padding: 3px; }
-        .pill { padding: 6px 12px; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 700; color: #5B6478; background: transparent; cursor: pointer; font-family: inherit; }
-        .pill.on { background: #FFFFFF; color: #2563EB; box-shadow: 0 2px 6px rgba(26,37,64,0.08); }
-        table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 1100px; }
-        thead th { padding: 12px 14px; text-align: left; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #8A93A6; background: #F8FAFD; border-bottom: 1px solid #E7ECF5; white-space: nowrap; }
-        thead th.r { text-align: right; }
-        thead th.sortable { cursor: pointer; user-select: none; }
-        thead th.sortable:hover { color: #2563EB; }
-        thead th.sorted { color: #2563EB; }
-        thead th.base-col { color: #C3CADA; }
-        tbody tr:hover td { background: #F8FAFD; }
-        tbody td { padding: 10px 14px; border-bottom: 1px solid #EFF2F8; color: #1A2540; white-space: nowrap; }
-        td.r { text-align: right; font-variant-numeric: tabular-nums; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12.5px; }
-        td.seller-name { font-weight: 700; color: #2563EB; font-size: 13px; }
-        td.co-cell { color: #8A93A6; font-size: 12px; }
-        td.princ-cell { color: #5B6478; font-size: 12px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-        td.dim { color: #A2ABBD; font-size: 12.5px; }
-        td.grow-pos { color: #16A34A; font-weight: 700; font-family: monospace; font-size: 12px; }
-        td.grow-neg { color: #DC2626; font-weight: 700; font-family: monospace; font-size: 12px; }
-        .rank { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; font-size: 11px; font-weight: 700; background: #F1F4FA; color: #8A93A6; }
-        .rank.r1 { background: rgba(234,179,8,0.16); color: #B45309; }
-        .rank.r2 { background: rgba(148,163,184,0.2); color: #64748B; }
-        .rank.r3 { background: rgba(180,83,9,0.16); color: #92400E; }
-        tfoot td { padding: 12px 14px; font-weight: 700; background: #F8FAFD !important; border-top: 1px solid rgba(37,99,235,0.3); color: #1A2540; white-space: nowrap; }
-        tfoot td.r { text-align: right; color: #2563EB; font-family: monospace; font-size: 12.5px; }
-
-        /* ── ยอดขายรายคน: จอเล็กเปลี่ยนจากตารางเป็นการ์ด ── */
-        .sl-cards, .sl-sort-mobile { display: none; }
-        @media (max-width: 760px) {
-          table.sl-table { display: none; }
-          .sl-cards { display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 16px; }
-          .sl-sort-mobile { display: block; }
-          .tbl-header { padding: 14px 12px 0; }
-          .tbl-tools, .tbl-tools .th-search { width: 100%; }
-          .tbl-tools .pills { flex-wrap: wrap; }
+        /* ── ยอดขายตามทีม ── */
+        .team-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+        .team-summary { display: grid; grid-template-columns: 1.3fr repeat(3, 1fr); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 16px; }
+        .ts-item { display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; border-left: 1px solid var(--border); min-width: 0; }
+        .ts-item:first-child { border-left: none; }
+        .ts-big { font: 600 24px var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+        .ts-val { font: 600 17px var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+        .ts-cap { font-size: 12px; color: var(--text-2); }
+        .ts-pace { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+        .ts-pace .bar { flex: 1; }
+        @media (max-width: 900px) {
+          .team-summary { grid-template-columns: 1fr 1fr; }
+          .ts-item:nth-child(3) { border-left: none; }
+          .ts-item:nth-child(n+3) { border-top: 1px solid var(--border); }
         }
-        .sl-card { border: 1px solid #E7ECF5; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: #FFFFFF; }
-        .sl-card.sl-total { background: #F4F8FF; border-color: rgba(37,99,235,0.25); }
-        .sl-card-head { display: flex; align-items: center; gap: 10px; }
-        .sl-who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-        .sl-seller { font-weight: 800; color: #2563EB; font-size: 14px; flex: 1; }
-        .sl-meta { font-size: 11.5px; color: #8A93A6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .sl-badge { font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-        .sl-bar { height: 5px; background: #EEF1F7; border-radius: 99px; overflow: hidden; }
-        .sl-bar > div { height: 100%; border-radius: 99px; }
-        .sl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
-        .sl-grid > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .sl-grid span { font-size: 10.5px; color: #8A93A6; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
-        .sl-grid b { font-size: 13px; font-variant-numeric: tabular-nums; color: #1A2540; overflow-wrap: anywhere; }
-        .sl-grid b.dim { color: #A2ABBD; }
-
-        .error-box { background: rgba(220,38,38,0.06); border-left: 3px solid #DC2626; border-radius: 12px; padding: 14px 18px; color: #B91C1C; font-size: 13px; margin-bottom: 20px; }
-        .empty-note { color: #A2ABBD; text-align: center; padding: 32px; font-size: 14px; }
+        /* ตารางทีม: แถวหัวกลุ่ม หัวหน้า (SM) → Sup พร้อมยอดรวมกลุ่ม */
+        .team-table .grp td { font-weight: 600; }
+        .team-table .grp-sm td { background: #E8F0FE; border-top: 2px solid var(--brand-100); }
+        .team-table .grp-sup td { background: #F6F9FF; }
+        .team-table .grp:hover td { filter: none; }
+        .grp-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .grp-tag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 9999px; background: var(--primary); color: #FFFFFF; }
+        .grp-sup .grp-tag { background: var(--brand-100); color: var(--brand-700); }
+        .grp-count { font-size: 12px; font-weight: 400; color: var(--text-2); }
+        .grp-open { border: none; background: none; padding: 0; font: 600 12px var(--font-body); color: var(--primary); cursor: pointer; }
+        .grp-open:hover { text-decoration: underline; }
+        .grp-open:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); border-radius: 4px; }
+        .team-table td.seller-cell { padding-left: 28px; }
+        .clear-btn { height: 38px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--primary); font: 600 13px var(--font-body); cursor: pointer; }
+        .clear-btn:hover { border-color: var(--primary); }
+        .clear-btn:disabled { color: var(--neutral); cursor: default; border-color: var(--border); }
+        @container card (max-width: 800px) {
+          .team-table .grp td { background: transparent !important; border: none; }
+          .team-table tr.grp-sm { background: #E8F0FE; border-color: var(--brand-100); }
+          .team-table tr.grp-sup { background: #F6F9FF; }
+          .team-table td.seller-cell { padding-left: 0; }
+          /* การ์ดแบบกะทัดรัด: Target | GIV · % เต็มแถว · BE | NIV */
+          .team-table tr { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
+          .team-table td { min-width: 0; }
+          .team-table td:nth-child(1), .team-table td:nth-child(2), .team-table td[data-label="% ถึง Target"] { grid-column: 1 / -1; }
+          .team-table td[data-label="Target"], .team-table td[data-label="BE"] { border-top: 1px solid #F4F4F6; }
+        }
 
         @media (max-width: 640px) {
-          .sidebar { width: 60px; }
-          .top-header { padding: 14px 16px; }
-          .page-body { padding: 16px 16px 40px; }
-          .co-grid { grid-template-columns: 1fr; }
+          .container { padding-left: 16px; padding-right: 16px; }
+          .hero { padding: 24px 16px 64px; }
+          .hero h1 { font-size: 26px; }
+          .card { padding: 16px; }
+          .kpis { padding: 0; }
+          .kpi { padding: 16px; }
+          .kpi-val { font-size: 22px; }
+          .field, .field select { width: 100%; }
+          .arrow { display: none; }
+          .filters .btn { width: 100%; }
+          .filters-hint { margin-left: 0; }
+          .co-cols { grid-template-columns: 1fr; }
+          .co-col + .co-col { border-left: none; padding-left: 0; border-top: 1px solid var(--border); padding-top: 12px; }
         }
+
+        /* ── SweetAlert2 ให้เข้ากับธีม ── */
+        .swal2-popup.swal-genesis { border-radius: 12px; font-family: var(--font-body); padding: 24px; }
+        .swal-genesis .swal2-title { font: 600 20px var(--font-display); letter-spacing: -0.02em; color: var(--text); }
+        .swal-genesis .swal2-html-container { font-size: 14px; color: var(--text-2); }
+        .swal-genesis .swal2-loader { border-color: var(--primary) transparent var(--primary) transparent; }
+        .swal-actions { gap: 8px; }
+        .swal-btn-ghost { background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+        .swal-btn { height: 38px; padding: 0 20px; border-radius: 6px; border: none; background: var(--primary); color: #FAFAFA; font: 600 14px var(--font-body); cursor: pointer; }
       `}</style>
 
-      <div className="app-shell">
-        {/* ─── Sidebar ───────────────────────────────────────── */}
+      <div className="shell">
+        <LoadingDone error={errorMessage} />
+
+        {/* ─── Sidebar: เมนูหลัก (เพิ่มฟังก์ชันใหม่เป็น sb-item ในกลุ่มได้เลย) ─── */}
         <aside className="sidebar">
-          <div className="sb-logo">R8M</div>
-          <div className="sb-nav-item active" title="Dashboard"><IconGrid /></div>
+          <div className="sb-brand">
+            <Image src="/logo.png" alt="RSM Group" width={44} height={44} className="sb-logo" priority />
+            <div className="sb-brand-text"><b>RSM GROUP</b><span>Sales Dashboard</span></div>
+          </div>
+          <nav className="sb-group" aria-label="เมนูหลัก">
+            <span className="sb-group-title">แดชบอร์ด</span>
+            <Link href="/dashboard" className="sb-item active" aria-current="page" title="ภาพรวมยอดขาย">
+              <IconChart /><span className="sb-label">ภาพรวมยอดขาย</span>
+            </Link>
+          </nav>
           <div className="sb-spacer" />
-          <div className="sb-nav-item" title="แชร์"><IconShare /></div>
+          {/* การ์ดผู้ใช้ + ปุ่มออกจากระบบอยู่ข้างชื่อ (ถามยืนยันก่อนออก) */}
+          <div className="sb-user" title={`${me.full_name} (${me.code})`}>
+            <span className="sb-avatar">{me.full_name.replace(/^(นาย|นางสาว|นาง|น\.ส\.)\s*/, '').slice(0, 1)}</span>
+            <span className="sb-user-text">
+              <b>{me.full_name}</b>
+              <span>{me.code}{me.position ? ` · ${me.position}` : ''}</span>
+            </span>
+            <LogoutButton action={logout} className="sb-logout"><IconLogout /></LogoutButton>
+          </div>
         </aside>
 
-        {/* ─── Main area ─────────────────────────────────────── */}
-        <div className="main-area">
-          <header className="top-header">
+        <div className="main">
+        <header className="hero">
+          <div className="hero-inner">
             <div>
-              <div className="th-breadcrumb">Dashboard / ภาพรวมการขาย</div>
-              <div className="th-title">ภาพรวมยอดขาย</div>
-              <div className="th-sub">
-                {rangeLabel}{companyFilter !== 'all' ? ` · ${companyFilter}` : ''}
+              <div className="crumb">แดชบอร์ด / ภาพรวมยอดขาย</div>
+              <h1>ภาพรวมยอดขาย</h1>
+              <p>{rangeLabel}{companyFilter !== 'all' ? ` · ${companyFilter}` : ' · SDO / PDC / DC'}</p>
+            </div>
+            <div className="hero-side">
+              <LogoutButton action={logout} className="hero-logout"><IconLogout /><span>ออกจากระบบ</span></LogoutButton>
+              <div className="hero-chips">
+                {!errorMessage && <span className="hero-chip">Time gone {tg.pct.toFixed(1)}%</span>}
+                {latestDate && <span className="hero-chip">ข้อมูลถึง {formatDate(latestDate)}</span>}
               </div>
             </div>
-            <div className="th-right">
-              <div className="th-avatar">
-                <div className="th-avatar-circle">RSM</div>
-                <div>
-                  <div className="th-avatar-name">R8M Group</div>
-                  <div className="th-avatar-role">Sales Dashboard</div>
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <div className="page-body">
-
-            {/* ─── Toggle มุมมอง + ช่วงข้อมูล ───────────────────── */}
-            <div className="view-row">
-              <div className="seg" role="radiogroup" aria-label="มุมมอง">
-                <input type="radio" id="view-overview" name="view" value="overview" form="filter-form" defaultChecked={view === 'overview'} />
-                <label htmlFor="view-overview">📊 ภาพรวม</label>
-                <input type="radio" id="view-seller" name="view" value="seller" form="filter-form" defaultChecked={view === 'seller'} />
-                <label htmlFor="view-seller">🧑‍💼 ยอดขายรายคน</label>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                {latestDate && <span className="view-row-sub">ข้อมูลถึง {formatDate(latestDate)} · อัปเดตทุกชั่วโมง</span>}
-                <div className="date-pill">
-                  <IconCalendar />
-                  {rangeLabel}
-                </div>
-              </div>
-            </div>
-
-            {/* ─── Filter form ─────────────────────────────────── */}
-            <form method="GET" id="filter-form" className="filter-card">
-              <div className="fg">
-                <label htmlFor="f-from">ตั้งแต่เดือน</label>
-                <select id="f-from" name="from" defaultValue={fromYM}>
-                  {months.map((m) => <option key={m} value={m}>{formatThaiMonth(m)}</option>)}
-                </select>
-              </div>
-              <span className="fg-arrow">→</span>
-              <div className="fg">
-                <label htmlFor="f-to">ถึงเดือน</label>
-                <select id="f-to" name="to" defaultValue={toYM}>
-                  {months.map((m) => <option key={m} value={m}>{formatThaiMonth(m)}</option>)}
-                </select>
-              </div>
-              <div className="fg">
-                <label htmlFor="f-company">บริษัท</label>
-                <select id="f-company" name="company" defaultValue={companyFilter}>
-                  <option value="all">ทั้งหมด</option>
-                  {COMPANY_ORDER.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <button type="submit" className="btn-search">ค้นหา</button>
-              {months.length > 0 && (
-                <span className="filter-hint">มีข้อมูล {formatRange(months[0], months[months.length - 1])}</span>
-              )}
-            </form>
-
-            {errorMessage && <div className="error-box">❌ {errorMessage}</div>}
-
-            {!errorMessage && (
-              <>
-                <div className="view-overview">
-                  {/* ─── สรุปยอด: GIV / NIV เทียบปีก่อน + Target / BE ───── */}
-                  <div className="sec-label"><span className="sec-label-text">📅 สรุปยอดขาย · {rangeLabel}{companyFilter !== 'all' ? ` · ${companyFilter}` : ''}</span></div>
-                  <SummaryTable
-                    cur={grandCurrent} prev={grandPrevious} hasPrev={hasPrev} prevLabel={prevRangeLabel}
-                    target={grandTarget.target} be={grandTarget.be} note={targetNote}
-                  />
-
-                  {/* ─── แนวโน้มยอดขาย ────────────────────────────── */}
-                  <div className="chart-strip-1">
-                    <div className="chart-card">
-                      <div className="chart-card-head">
-                        <span className="chart-card-icon"><IconTrend /></span>
-                        <div>
-                          <div className="chart-card-title">แนวโน้มยอดขาย</div>
-                          <div className="chart-card-sub">
-                            รายเดือน {trendMonths.length > 0 ? formatRange(trendMonths[0], trendMonths[trendMonths.length - 1]) : ''} (บาท) — GIV / NIV
-                          </div>
-                        </div>
-                      </div>
-                      <TrendLineChart points={trendPoints} />
-                    </div>
-                  </div>
-
-                  {/* ─── ยอดขายรายบริษัท ──────────────────────────── */}
-                  <div className="chart-strip-2">
-                    <div className="chart-card">
-                      <div className="chart-card-head">
-                        <span className="chart-card-icon" style={{ background: 'rgba(22,163,74,0.1)', color: '#16A34A' }}><IconBuilding /></span>
-                        <div>
-                          <div className="chart-card-title">ยอดขายรายบริษัท (GIV)</div>
-                          <div className="chart-card-sub">{rangeLabel} เทียบ {prevRangeLabel}</div>
-                        </div>
-                      </div>
-                      <CompanyCompareChart current={companyCurrent} previous={companyPrevious} metric="GIV" accentColor="#16A34A" />
-                    </div>
-                    <div className="chart-card">
-                      <div className="chart-card-head">
-                        <span className="chart-card-icon"><IconBuilding /></span>
-                        <div>
-                          <div className="chart-card-title">ยอดขายรายบริษัท (NIV)</div>
-                          <div className="chart-card-sub">{rangeLabel} เทียบ {prevRangeLabel}</div>
-                        </div>
-                      </div>
-                      <CompanyCompareChart current={companyCurrent} previous={companyPrevious} metric="NIV" accentColor="#2563EB" />
-                    </div>
-                  </div>
-
-                  {/* ─── สัดส่วนยอดขายตาม Principal — แยก GIV / NIV คนละวง ─── */}
-                  {princDonutData.length > 0 && (
-                    <div className="chart-strip-2">
-                      <div className="chart-card">
-                        <div className="chart-card-head">
-                          <span className="chart-card-icon" style={{ background: 'rgba(22,163,74,0.1)', color: '#16A34A' }}><IconPie /></span>
-                          <div>
-                            <div className="chart-card-title">สัดส่วนยอดขายตาม Principal (GIV)</div>
-                            <div className="chart-card-sub">รวมยอด GIV ของทุก Seller แยกตาม Principal ของแต่ละคน</div>
-                          </div>
-                        </div>
-                        <DonutChart data={princDonutData} metric="giv" />
-                      </div>
-                      <div className="chart-card">
-                        <div className="chart-card-head">
-                          <span className="chart-card-icon" style={{ background: 'rgba(37,99,235,0.1)', color: '#2563EB' }}><IconPie /></span>
-                          <div>
-                            <div className="chart-card-title">สัดส่วนยอดขายตาม Principal (NIV)</div>
-                            <div className="chart-card-sub">รวมยอด NIV ของทุก Seller แยกตาม Principal ของแต่ละคน</div>
-                          </div>
-                        </div>
-                        <DonutChart data={princDonutData} metric="niv" />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ─── Company cards ────────────────────────────── */}
-                  <div className="sec-label"><span className="sec-label-text">🏢 ยอดขายแยกตามบริษัท</span></div>
-                  <div className="co-grid">
-                    {companyCurrent.map((c, i) => {
-                      const prevC = companyPrevious.find((p) => normalizeCompany(p.company) === normalizeCompany(c.company));
-                      const coTarget = sumTargets(targets.filter((t) => normalizeCompany(t.company) === normalizeCompany(c.company)));
-                      const g     = prevC ? pctGrowth(c.NIV, prevC.NIV) : null;
-                      const col   = getCompanyColor(c.company, i);
-                      return (
-                        <div className="co-card" key={c.company} style={{ '--co-color': col } as React.CSSProperties}>
-                          <div className="co-head">
-                            <span className="co-name">⚡ {c.company}</span>
-                            <span className="co-badge" style={{ color: growthColor(g) }} title="NIV เทียบปีก่อน">{growthArrow(g)}</span>
-                          </div>
-                          <div className="co-metrics">
-                            <div className="co-metric"><div className="co-metric-label">GIV</div><div className="co-metric-val giv">{fmtNum(c.GIV)}</div></div>
-                            <div className="co-metric"><div className="co-metric-label">NIV</div><div className="co-metric-val niv">{fmtNum(c.NIV)}</div></div>
-                            <div className="co-metric"><div className="co-metric-label">Target</div><div className="co-metric-val amber">{coTarget.target ? fmtNum(coTarget.target) : '–'}</div></div>
-                            <div className="co-metric"><div className="co-metric-label">GIV / Target</div><div className="co-metric-val amber">{fmtPct(coTarget.target ? (c.GIV / coTarget.target) * 100 : null)}</div></div>
-                            <div className="co-metric"><div className="co-metric-label">BE</div><div className="co-metric-val dim">{coTarget.be ? fmtNum(coTarget.be) : '–'}</div></div>
-                            <div className="co-metric"><div className="co-metric-label">NIV ปีก่อน</div><div className="co-metric-val dim">{prevC ? fmtNum(prevC.NIV) : '–'}</div></div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* ─── ยอดขายรายคน (client component — ค้นหา/กรอง/เรียงได้ทันที) ── */}
-                <div className="view-seller">
-                  <SellerTable
-                    rows={sellerDetail}
-                    companyFilter={companyFilter}
-                    hasPrev={hasPrev}
-                    periodLabel={rangeLabel}
-                    fileTag={fromYM === toYM ? fromYM : `${fromYM}_${toYM}`}
-                  />
-                </div>
-              </>
-            )}
           </div>
+        </header>
+
+        <main className="container">
+          {/* ─── Filter (วางทับขอบล่างของ hero) ─── */}
+          <div className="filters-wrap">
+          <FilterForm id="filter-form" className="card filters">
+            <label className="field">
+              <span className="field-label">ตั้งแต่เดือน</span>
+              <select name="from" defaultValue={fromYM}>
+                {months.map((m) => <option key={m} value={m}>{formatThaiMonth(m)}</option>)}
+              </select>
+            </label>
+            <span className="arrow">→</span>
+            <label className="field">
+              <span className="field-label">ถึงเดือน</span>
+              <select name="to" defaultValue={toYM}>
+                {months.map((m) => <option key={m} value={m}>{formatThaiMonth(m)}</option>)}
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">บริษัท</span>
+              <select name="company" defaultValue={companyFilter}>
+                <option value="all">ทั้งหมด</option>
+                {COMPANY_ORDER.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <button type="submit" className="btn btn-primary">ค้นหา</button>
+            {months.length > 0 && <span className="filters-hint">มีข้อมูล {formatRange(months[0], months[months.length - 1])}</span>}
+          </FilterForm>
+          </div>
+
+          {errorMessage && <p className="empty">โหลดข้อมูลไม่สำเร็จ — ลองกดค้นหาอีกครั้ง</p>}
+
+          {!errorMessage && (
+            <>
+              <div className="section" style={{ gap: 24 }}>
+                {/* ─── 1. Time gone ─── */}
+                <PaceStrip tg={tg} giv={grandCurrent.GIV} target={grandTarget.target} />
+
+                {/* ─── 2. GIV / NIV ─── */}
+                <div className="grid-2">
+                  <MetricCard label="GIV" sub="ยอดก่อนหักส่วนลด"
+                    cur={grandCurrent.GIV} prev={grandPrevious.GIV} hasPrev={hasPrev} prevLabel={prevRangeLabel}>
+                    <GivTargetGroup giv={grandCurrent.GIV} target={grandTarget.target} be={grandTarget.be} note={targetNote} tg={tg} />
+                  </MetricCard>
+                  <MetricCard label="NIV" sub="ยอดสุทธิ"
+                    cur={grandCurrent.NIV} prev={grandPrevious.NIV} hasPrev={hasPrev} prevLabel={prevRangeLabel} />
+                </div>
+
+                {/* ─── 3. รายบริษัท ─── */}
+                <div className="section">
+                  <div className="section-title"><h2>ยอดขายแยกตามบริษัท</h2><span>{rangeLabel} · เทียบ {prevRangeLabel}</span></div>
+                  <CompanyCards stats={companyStats} tg={tg} hasPrev={hasPrev} />
+                </div>
+
+                {/* ─── 4. ยอดสะสม / ค่าเฉลี่ย 3 · 6 เดือน ─── */}
+                <div className="section">
+                  <div className="section-title">
+                    <h2>ยอดสะสมและค่าเฉลี่ยย้อนหลัง</h2>
+                    <span>นับถึง {formatThaiMonth(toYM)} · เดือนปัจจุบันนับถึง {formatDate(latestDate)} (MTD)</span>
+                  </div>
+                  <PeriodTable metric="GIV" periods={periods} />
+                  <PeriodTable metric="NIV" periods={periods} />
+                </div>
+
+                {/* ─── 5. แนวโน้ม ─── */}
+                <section className="card">
+                  <header className="card-head">
+                    <div>
+                      <h3 className="card-title">แนวโน้มยอดขายรายเดือน</h3>
+                      <p className="card-sub">{trendMonths.length > 0 ? formatRange(trendMonths[0], trendMonths[trendMonths.length - 1]) : ''} · บาท</p>
+                    </div>
+                  </header>
+                  <TrendLineChart points={trendPoints} />
+                </section>
+
+                {/* ─── 6. สัดส่วน บริษัท → Principal ─── */}
+                <CompanyShare rows={princRows} companies={companies} />
+
+                {/* ─── 7. ยอดขายตามทีม (ชีต BE) ─── */}
+                <BranchView rows={branchRows} companies={companies} timeGonePct={tg.pct} periodLabel={rangeLabel} sheetUpdatedAt={sheetUpdatedAt} />
+              </div>
+            </>
+          )}
+        </main>
         </div>
       </div>
     </>

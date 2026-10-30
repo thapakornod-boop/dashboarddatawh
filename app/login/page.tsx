@@ -1,8 +1,47 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { closeLoading, showError, showLoading } from '@/app/components/Loading'
+import { login } from './actions'
+
+// รหัสพนักงาน: อังกฤษ 3 ตัว + ตัวเลข 4 ตัว เช่น SDO1234
+const CODE_RE = /^[A-Z]{3}\d{4}$/
+const REMEMBER_KEY = 'rsm_remember_code'
+
+// บันทึก / ดึงรหัสผ่านผ่านตัวจัดการรหัสผ่านของเบราว์เซอร์ (Credential Management API)
+// เบราว์เซอร์เก็บแบบเข้ารหัสเอง เว็บไม่เก็บเลขบัตรไว้เอง — รองรับ Chrome / Edge / Opera
+// ส่วน Safari / Firefox จะเสนอ "บันทึกรหัสผ่าน" เองจาก autoComplete ของช่องกรอก
+type PasswordCred = Credential & { password?: string }
+type PasswordCredCtor = new (data: { id: string; password: string; name?: string }) => Credential
+const PasswordCredential = () =>
+  typeof window !== 'undefined' ? (window as unknown as { PasswordCredential?: PasswordCredCtor }).PasswordCredential : undefined
+
+async function saveToBrowser(code: string, idCard: string, name: string) {
+  const Ctor = PasswordCredential()
+  if (!Ctor || !navigator.credentials) return
+  try { await navigator.credentials.store(new Ctor({ id: code, password: idCard, name })) } catch { /* ผู้ใช้กดไม่บันทึก */ }
+}
+
+async function loadFromBrowser(): Promise<{ code: string; idCard: string } | null> {
+  if (!PasswordCredential() || !navigator.credentials) return null
+  try {
+    const c = (await navigator.credentials.get({ password: true, mediation: 'optional' } as CredentialRequestOptions)) as PasswordCred | null
+    return c?.type === 'password' && c.password ? { code: c.id, idCard: c.password } : null
+  } catch {
+    return null
+  }
+}
+
+const noopSubscribe = () => () => {}
+function readSavedCode() {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) ?? ''
+  } catch {
+    return '' // เบราว์เซอร์ปิด storage ไว้ก็ไม่เป็นไร
+  }
+}
 
 // ริบบิ้นโค้งลอยตกแต่ง background (SVG เส้นหนา ปลายมน ไล่สี)
 function Squiggle({ className, d, gradientId, colors }: {
@@ -32,25 +71,76 @@ function Squiggle({ className, d, gradientId, colors }: {
 
 export default function LoginPage() {
   const router = useRouter()
-  const [employeeId, setEmployeeId] = useState('')
+  // รหัสพนักงานที่เคยจดจำไว้ในเครื่องนี้ (ฝั่ง server = ว่าง) ใช้เป็นค่าเริ่มต้นจนกว่าจะพิมพ์เอง
+  const savedCode = useSyncExternalStore(noopSubscribe, readSavedCode, () => '')
+  const [typedId, setEmployeeId] = useState<string | null>(null)
+  const [rememberPick, setRemember] = useState<boolean | null>(null)
+  const employeeId = typedId ?? savedCode
+  const remember = rememberPick ?? savedCode !== ''
   const [idCard, setIdCard] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // โหลดโครงหน้า dashboard ไว้ก่อนระหว่างกรอกข้อมูล กดเข้าสู่ระบบแล้วเปลี่ยนหน้าได้ทันที
+  // โหลดโครงหน้า dashboard ไว้ก่อน + ปิด loading ที่ค้างมาจากการออกจากระบบ
   useEffect(() => {
+    closeLoading()
     router.prefetch('/dashboard')
   }, [router])
 
-  // TODO: ยังไม่ต่อ backend จริง — มั่วๆ กรอกอะไรก็ผ่าน แล้ว redirect ไปหน้าถัดไปเลย
+  // เคยติ๊ก "จดจำฉัน" ไว้ → ดึงรหัสพนักงาน + เลขบัตรที่บันทึกในเบราว์เซอร์มาเติมให้
+  useEffect(() => {
+    if (!savedCode) return
+    loadFromBrowser().then((cred) => {
+      if (!cred) return
+      setEmployeeId(cred.code)
+      setIdCard(cred.idCard.replace(/\D/g, '').slice(0, 13))
+    })
+  }, [savedCode])
+
+  // ตรวจรูปแบบก่อนส่ง (server ตรวจซ้ำอีกรอบเสมอ)
+  function validate(): string {
+    if (!employeeId || !idCard) return 'กรุณากรอกรหัสพนักงานและเลขบัตรประชาชน'
+    if (!CODE_RE.test(employeeId)) return 'รหัสพนักงานต้องเป็นตัวอักษรอังกฤษ 3 ตัว ตามด้วยตัวเลข 4 ตัว เช่น SDO1234'
+    if (idCard.length !== 13) return 'เลขบัตรประชาชนต้องมี 13 หลัก'
+    return ''
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
+    const invalid = validate()
+    setError(invalid)
+    if (invalid) {
+      showError('กรอกข้อมูลไม่ครบ', invalid)
+      return
+    }
+
     setLoading(true)
+    showLoading('กำลังเข้าสู่ระบบ', 'ตรวจสอบข้อมูลพนักงาน')
+    let res: Awaited<ReturnType<typeof login>>
+    try {
+      res = await login({ code: employeeId, idCard, remember })
+    } catch {
+      res = { ok: false, error: 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง' }
+    }
 
-    console.log('mock login:', { employeeId, idCard })
+    if (!res.ok) {
+      setLoading(false)
+      setError(res.error)
+      showError('เข้าสู่ระบบไม่สำเร็จ', res.error)
+      return
+    }
 
-    // มั่วๆ ผ่านหมด ไม่เช็คอะไรจริง
+    // จดจำฉัน: เก็บรหัสพนักงานไว้เติมให้ + บันทึกรหัสผ่านลงตัวจัดการรหัสผ่านของเบราว์เซอร์
+    // ไม่ติ๊ก: ลบรหัสที่จำไว้ และบอกเบราว์เซอร์ไม่ให้เติมให้อัตโนมัติ
+    try {
+      if (remember) localStorage.setItem(REMEMBER_KEY, employeeId)
+      else localStorage.removeItem(REMEMBER_KEY)
+    } catch { /* ไม่เป็นไร */ }
+    if (remember) await saveToBrowser(employeeId, idCard, res.name)
+    else await navigator.credentials?.preventSilentAccess?.().catch(() => {})
+
+    // loading ค้างไว้จนหน้า dashboard โหลดเสร็จแล้วปิดเอง
+    showLoading(`ยินดีต้อนรับ ${res.name}`, 'กำลังโหลดภาพรวมยอดขาย')
     router.push('/dashboard')
   }
 
@@ -136,16 +226,47 @@ export default function LoginPage() {
             <h2 className="text-xl font-semibold text-gray-800 mb-1">เข้าสู่ระบบ</h2>
             <p className="text-sm text-gray-400 mb-8">กรอกข้อมูลพนักงานเพื่อเข้าใช้งาน</p>
 
-            <form onSubmit={handleLogin} className="space-y-4">
+            {/* name / autoComplete ตามมาตรฐาน → เบราว์เซอร์เสนอ "บันทึกรหัสผ่าน" ให้เอง */}
+            <form onSubmit={handleLogin} className="space-y-4" noValidate>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                <label htmlFor="username" className="block text-xs font-medium text-gray-500 mb-1.5">
                   รหัสพนักงาน
                 </label>
                 <input
+                  id="username"
+                  name="username"
                   type="text"
+                  autoComplete="username"
+                  autoCapitalize="characters"
+                  spellCheck={false}
                   value={employeeId}
-                  onChange={(e) => setEmployeeId(e.target.value)}
-                  placeholder="เช่น SDO0586"
+                  // พิมพ์ได้เฉพาะ A-Z / 0-9 แปลงเป็นตัวพิมพ์ใหญ่ให้ และยาวไม่เกิน 7 ตัว (เช่น SDO1234)
+                  onChange={(e) => setEmployeeId(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7))}
+                  placeholder="เช่น SDO1234"
+                  maxLength={7}
+                  required
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 tracking-wider
+                             focus:ring-2 focus:ring-[#3B9EE8] focus:border-transparent
+                             text-gray-800 placeholder-gray-300 placeholder:tracking-normal transition"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="password" className="flex justify-between text-xs font-medium text-gray-500 mb-1.5">
+                  <span>เลขบัตรประชาชน</span>
+                  <span className={idCard.length === 13 ? 'text-emerald-600' : 'text-gray-300'}>{idCard.length}/13</span>
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  inputMode="numeric"
+                  value={idCard}
+                  // พิมพ์ได้เฉพาะตัวเลข สูงสุด 13 หลัก
+                  onChange={(e) => setIdCard(e.target.value.replace(/\D/g, '').slice(0, 13))}
+                  placeholder="กรอกเลข 13 หลัก"
+                  maxLength={13}
                   required
                   className="w-full px-4 py-3 rounded-xl border border-gray-200
                              focus:ring-2 focus:ring-[#3B9EE8] focus:border-transparent
@@ -153,22 +274,15 @@ export default function LoginPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                  เลขบัตรประชาชน
-                </label>
+              <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none">
                 <input
-                  type="password"
-                  value={idCard}
-                  onChange={(e) => setIdCard(e.target.value)}
-                  placeholder="กรอกเลข 13 หลัก"
-                  required
-                  maxLength={13}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200
-                             focus:ring-2 focus:ring-[#3B9EE8] focus:border-transparent
-                             text-gray-800 placeholder-gray-300 transition"
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                  className="w-4 h-4 rounded accent-[#2563EB]"
                 />
-              </div>
+                บันทึกรหัสผ่าน
+              </label>
 
               {error && (
                 <p className="text-sm text-red-500 text-center bg-red-50 py-2 px-4 rounded-lg">
