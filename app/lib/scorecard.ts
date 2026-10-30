@@ -6,6 +6,8 @@ import { addDays, CompanyKpi, CompanyTotal, getCompanyKpi, getCompanyTotals, shi
 
 // ปีงบของ SDO (P&G) เริ่ม 1 ก.ค. — ใช้กับ Sales vs YA แบบ FYTD
 export const FY_START_MONTH = 7;
+// Active Stores ช่วงที่เลือก นับได้ยาวสุดกี่เดือน
+export const MAX_RANGE_MONTHS = 12;
 
 export type Range = { from: string; to: string }; // to ไม่รวม
 export type Pair = { cur: CompanyTotal | null; prev: CompanyTotal | null };
@@ -27,6 +29,7 @@ export type CompanyScore = {
 export type Scorecard = {
   ranges: { month: Range; base: Range; cy: Range; fy: Range; p3: Range; p6: Range; storesP3: Range; storesP1: Range; storesRange: Range };
   kpiReady: boolean; // รัน SQL ตาราง sales_store_daily แล้วหรือยัง
+  rangeTooLong: boolean; // ช่วงที่เลือกยาวเกิน MAX_RANGE_MONTHS → ไม่นับ Active Stores ช่วงที่เลือก
   byCompany: Record<string, CompanyScore>;
 };
 
@@ -59,9 +62,12 @@ export async function loadScorecard({
 
   const t = (r: Range) => getCompanyTotals(r.from, r.to);
   const k = (r: Range) => getCompanyKpi(r.from, r.to);
+  // นับร้านค้าไม่ซ้ำในช่วงยาว ๆ หนักเกินไป → ช่วงที่เลือกนับได้ไม่เกิน MAX_RANGE_MONTHS เดือน
+  const rangeMonths = months.filter((x) => x >= fromYM && x <= toYM).length;
+  const rangeTooLong = rangeMonths > MAX_RANGE_MONTHS;
   const [mo, ba, cyCur, cyPrev, fyCur, fyPrev, p3t, p6t, kMonth, kP3, kRange] = await Promise.all([
     t(month), t(base), t(cy), t(lastYear(cy)), t(fy), t(lastYear(fy)), t(p3), t(p6),
-    k(month), k(storesP3), k(storesRange),
+    k(month), k(storesP3), rangeTooLong ? Promise.resolve<Record<string, CompanyKpi>>({}) : k(storesRange),
   ]);
 
   // เฉลี่ยด้วยจำนวนเดือนที่มีข้อมูลจริง (ต้นข้อมูลอาจมีไม่ครบ 3 / 6 เดือน)
@@ -86,6 +92,7 @@ export async function loadScorecard({
   return {
     ranges: { month, base, cy, fy, p3, p6, storesP3, storesP1: month, storesRange },
     kpiReady: kMonth !== null,
+    rangeTooLong,
     byCompany,
   };
 }

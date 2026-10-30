@@ -17,6 +17,8 @@ create table if not exists public.sales_store_daily (
   lines_gt1    int     not null default 0,   -- จำนวนบรรทัดขายที่ยอด > 1 บาท (Line/Bill ของ PDC / DC)
   primary key (company_code, d, seller, cardcode)
 );
+-- ค้นตามช่วงวันที่ (dashboard_kpi) — ไม่มี index นี้จะอ่านทั้งตารางทุกครั้งจนเกิน statement timeout
+create index if not exists sales_store_daily_d_idx on public.sales_store_daily (d, company_code);
 alter table public.sales_store_daily enable row level security;
 revoke all on public.sales_store_daily from anon, authenticated;
 grant select on public.sales_store_daily to service_role;

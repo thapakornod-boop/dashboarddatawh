@@ -116,7 +116,7 @@ export default function LoginPage() {
     }
 
     setLoading(true)
-    showLoading('กำลังเข้าสู่ระบบ', 'ตรวจสอบข้อมูลพนักงาน')
+    showLoading('กำลังเข้าสู่ระบบ', 'กำลังโหลดข้อมูล')
     let res: Awaited<ReturnType<typeof login>>
     try {
       res = await login({ code: employeeId, idCard, remember })
@@ -148,27 +148,27 @@ export default function LoginPage() {
   return (
     <main className="relative min-h-screen bg-gradient-to-br from-[#BFE0FA] via-[#8FC5F2] to-[#5DA8EB] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
       {/* ---------- พื้นหลังตกแต่ง: วงกลมลอยเป็นชั้นๆ ---------- */}
-      <div className="pointer-events-none absolute -top-32 -right-32 w-[420px] h-[420px] rounded-full bg-white/25 blur-md" />
-      <div className="pointer-events-none absolute -top-16 -right-16 w-[280px] h-[280px] rounded-full bg-[#3B82F6]/30 blur-sm" />
+      <div className="pointer-events-none absolute -top-32 -right-32 w-[420px] h-[420px] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.3)_0%,rgba(255,255,255,0.3)_45%,transparent_70%)]" />
+      <div className="pointer-events-none absolute -top-16 -right-16 w-[280px] h-[280px] rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.3)_0%,rgba(59,130,246,0.3)_45%,transparent_70%)]" />
 
-      <div className="pointer-events-none absolute -bottom-40 -left-24 w-[380px] h-[380px] rounded-full bg-[#1D4ED8]/20 blur-md" />
-      <div className="pointer-events-none absolute -bottom-20 -left-10 w-[220px] h-[220px] rounded-full bg-white/20 blur-sm" />
+      <div className="pointer-events-none absolute -bottom-40 -left-24 w-[380px] h-[380px] rounded-full bg-[radial-gradient(circle,rgba(29,78,216,0.22)_0%,rgba(29,78,216,0.22)_45%,transparent_70%)]" />
+      <div className="pointer-events-none absolute -bottom-20 -left-10 w-[220px] h-[220px] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.22)_45%,transparent_70%)]" />
 
-      <div className="pointer-events-none absolute top-[10%] left-[8%] w-24 h-24 rounded-full bg-white/30 blur-[2px]" />
-      <div className="pointer-events-none absolute top-[15%] right-[12%] w-16 h-16 rounded-full bg-[#60A5FA]/40 blur-[2px]" />
-      <div className="pointer-events-none absolute bottom-[12%] right-[10%] w-28 h-28 rounded-full bg-white/25 blur-[2px]" />
-      <div className="pointer-events-none absolute bottom-[18%] left-[14%] w-14 h-14 rounded-full bg-[#2563EB]/30 blur-[1px]" />
+      <div className="pointer-events-none absolute top-[10%] left-[8%] w-24 h-24 rounded-full bg-white/30" />
+      <div className="pointer-events-none absolute top-[15%] right-[12%] w-16 h-16 rounded-full bg-[#60A5FA]/40" />
+      <div className="pointer-events-none absolute bottom-[12%] right-[10%] w-28 h-28 rounded-full bg-white/25" />
+      <div className="pointer-events-none absolute bottom-[18%] left-[14%] w-14 h-14 rounded-full bg-[#2563EB]/30" />
       <div className="pointer-events-none absolute top-[45%] right-[6%] w-10 h-10 rounded-full bg-white/40" />
       <div className="pointer-events-none absolute top-[55%] left-[6%] w-8 h-8 rounded-full bg-[#3B82F6]/40" />
 
-      <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-white/10 blur-3xl" />
+      <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.14)_0%,transparent_65%)]" />
 
       {/* ---------- การ์ด login แบบ split-panel ---------- */}
       <div className="relative z-10 w-full max-w-4xl bg-white rounded-[28px] shadow-2xl overflow-hidden flex flex-col md:flex-row md:h-[560px]">
         {/* ฝั่งซ้าย: hero คลื่นสีฟ้า */}
         <div className="relative shrink-0 h-[180px] md:h-auto md:w-[42%] bg-gradient-to-br from-[#173B8C] via-[#2563EB] to-[#3B9EE8] overflow-hidden flex flex-col justify-between p-6 sm:p-8 md:p-10">
-          <div className="pointer-events-none absolute -top-10 -left-10 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
-          <div className="pointer-events-none absolute bottom-10 right-0 w-52 h-52 rounded-full bg-white/10 blur-3xl" />
+          <div className="pointer-events-none absolute -top-10 -left-10 w-40 h-40 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.14)_0%,transparent_70%)]" />
+          <div className="pointer-events-none absolute bottom-10 right-0 w-52 h-52 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.14)_0%,transparent_70%)]" />
 
           <div className="relative z-10">
             <p className="text-white/70 text-xs tracking-wide uppercase mb-1">

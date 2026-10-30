@@ -205,6 +205,11 @@ export function getCompanyKpi(from: string, to: string): Promise<Record<string, 
     } catch (err) {
       // ยังไม่ได้สร้างฟังก์ชันในฐานข้อมูล → ไม่ถือเป็น error ของหน้า
       if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+      // ช่วงยาว / ฐานข้อมูลช้าจนเกิน statement timeout → ช่องนั้นแสดง "–" แต่หน้าอื่นยังใช้ได้ (ไม่ cache ไว้)
+      if (err instanceof Error && /57014|statement timeout/.test(err.message)) {
+        memo.delete(`kpi|${from}|${to}`);
+        return {};
+      }
       throw err;
     }
   });
