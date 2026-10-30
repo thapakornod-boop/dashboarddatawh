@@ -132,7 +132,7 @@ export default function BranchView({
         <div>
           <h3 className="card-title">ยอดขายตามทีม · {periodLabel}</h3>
           <p className="card-sub">
-            จาก Google Sheet (BEST - Estimate){sheetUpdatedAt ? ` · อัปเดต ${sheetUpdatedAt}` : ''} · ขีดดำบนแท่ง = Time gone {timeGonePct.toFixed(1)}%
+            จาก Google Sheet (BEST - Estimate){sheetUpdatedAt ? ` · อัปเดต ${sheetUpdatedAt}` : ''} · ช่องขาวบนแท่ง = Time gone {timeGonePct.toFixed(1)}%
           </p>
         </div>
       </header>

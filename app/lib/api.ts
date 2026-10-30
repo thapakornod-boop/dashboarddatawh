@@ -175,6 +175,41 @@ export function getLatestDate(): Promise<string> {
   });
 }
 
+// ── ยอดรวมรายบริษัท (Scorecard) ──────────────────────────────────
+// ช่วง [from, to) (to ไม่รวม) เฉพาะเซลล์ที่นับยอด — มาจาก RPC dashboard_sales ที่มีอยู่แล้ว
+export type CompanyTotal = { giv: number; niv: number; lines: number; bills: number };
+
+export function getCompanyTotals(from: string, to: string): Promise<Record<string, CompanyTotal>> {
+  return cached(`co|${from}|${to}`, async () => {
+    const res = await rpcScalar<{ byCompany: { company: string; giv: number; niv: number; lines: number; bills: number }[] }>(
+      'dashboard_sales', { p_from: from, p_to: to }
+    );
+    return Object.fromEntries(res.byCompany.map((c) => [c.company, {
+      giv: Number(c.giv), niv: Number(c.niv), lines: Number(c.lines), bills: Number(c.bills),
+    }]));
+  });
+}
+
+// ตัวชี้วัดระดับร้านค้า (Active Stores / วันทำงานจริง / Line ที่ยอด > 1 บาท) จาก RPC dashboard_kpi
+// ต้องรัน supabase/kpi_store.sql ก่อน — ยังไม่ได้รันจะคืน null (หน้าเว็บแสดง "รอข้อมูล")
+export type CompanyKpi = { active_stores: number; work_days: number; bills: number; lines: number; lines_gt1: number };
+
+export function getCompanyKpi(from: string, to: string): Promise<Record<string, CompanyKpi> | null> {
+  return cached(`kpi|${from}|${to}`, async () => {
+    try {
+      const rows = await rpc<CompanyKpi & { company_code: string }>('dashboard_kpi', { p_from: from, p_to: to });
+      return Object.fromEntries(rows.map((r) => [r.company_code, {
+        active_stores: Number(r.active_stores), work_days: Number(r.work_days),
+        bills: Number(r.bills), lines: Number(r.lines), lines_gt1: Number(r.lines_gt1),
+      }]));
+    } catch (err) {
+      // ยังไม่ได้สร้างฟังก์ชันในฐานข้อมูล → ไม่ถือเป็น error ของหน้า
+      if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+      throw err;
+    }
+  });
+}
+
 // เดือนที่มีข้อมูลจริง (เก่า → ใหม่) ไว้ทำตัวเลือก filter
 // ตัดเดือนที่มีแค่เอกสารหลงมาไม่กี่ใบ (ยอด < 1% ของเดือนที่สูงสุด) เช่น 2025-01 ที่มี 587 บาท
 export function getAvailableMonths(): Promise<string[]> {

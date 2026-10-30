@@ -48,9 +48,9 @@ export function paceOf(pct: number | null, timeGonePct: number): Pace {
   return 'bad';
 }
 
-// สีตัวอักษร (เข้มพอสำหรับอ่านบนพื้นขาว) / สีแท่ง (สีสถานะตาม design.md)
-const PACE_TEXT: Record<Pace, string> = { ok: '#047857', warn: '#B45309', bad: '#B91C1C', none: '#9C9C9C' };
-const PACE_FILL: Record<Pace, string> = { ok: '#10B981', warn: '#F59E0B', bad: '#EF4444', none: '#D4D4D8' };
+// สีตามมาตรฐาน Ant Design: success / warning / error (ตัวอักษรใช้เฉดเข้มให้อ่านบนพื้นขาวได้ชัด)
+const PACE_TEXT: Record<Pace, string> = { ok: '#389E0D', warn: '#AD6800', bad: '#CF1322', none: '#8C8C8C' };
+const PACE_FILL: Record<Pace, string> = { ok: '#52C41A', warn: '#FAAD14', bad: '#FF4D4F', none: '#D9D9D9' };
 export const PACE_LABEL: Record<Pace, string> = { ok: 'ตามเป้า', warn: 'ใกล้เป้า', bad: 'ต่ำกว่าเป้า', none: 'ไม่มีเป้า' };
 
 export function paceColor(pct: number | null, timeGonePct: number) {
