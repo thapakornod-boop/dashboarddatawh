@@ -78,6 +78,7 @@ export default function LoginPage() {
   const employeeId = typedId ?? savedCode
   const remember = rememberPick ?? savedCode !== ''
   const [idCard, setIdCard] = useState('')
+  const [showIdCard, setShowIdCard] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -256,22 +257,47 @@ export default function LoginPage() {
                   <span>เลขบัตรประชาชน</span>
                   <span className={idCard.length === 13 ? 'text-emerald-600' : 'text-gray-300'}>{idCard.length}/13</span>
                 </label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  inputMode="numeric"
-                  value={idCard}
-                  // พิมพ์ได้เฉพาะตัวเลข สูงสุด 13 หลัก
-                  onChange={(e) => setIdCard(e.target.value.replace(/\D/g, '').slice(0, 13))}
-                  placeholder="กรอกเลข 13 หลัก"
-                  maxLength={13}
-                  required
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200
-                             focus:ring-2 focus:ring-[#3B9EE8] focus:border-transparent
-                             text-gray-800 placeholder-gray-300 transition"
-                />
+                <div className="relative">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showIdCard ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    inputMode="numeric"
+                    value={idCard}
+                    // พิมพ์ได้เฉพาะตัวเลข สูงสุด 13 หลัก
+                    onChange={(e) => setIdCard(e.target.value.replace(/\D/g, '').slice(0, 13))}
+                    placeholder="กรอกเลข 13 หลัก"
+                    maxLength={13}
+                    required
+                    className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-200 tracking-wider
+                               focus:ring-2 focus:ring-[#3B9EE8] focus:border-transparent
+                               text-gray-800 placeholder-gray-300 placeholder:tracking-normal transition"
+                  />
+                  {/* ปุ่มดวงตา: กดเพื่อดู / ซ่อนเลขบัตรที่กรอก */}
+                  <button
+                    type="button"
+                    onClick={() => setShowIdCard((v) => !v)}
+                    aria-label={showIdCard ? 'ซ่อนเลขบัตรประชาชน' : 'แสดงเลขบัตรประชาชน'}
+                    aria-pressed={showIdCard}
+                    title={showIdCard ? 'ซ่อน' : 'แสดง'}
+                    className="absolute inset-y-0 right-0 w-12 flex items-center justify-center rounded-r-xl
+                               text-gray-400 hover:text-[#2563EB] focus:outline-none focus-visible:text-[#2563EB] transition"
+                  >
+                    {showIdCard ? (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 3l18 18" />
+                        <path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c6.5 0 10 7 10 7a17.7 17.7 0 0 1-3.2 4.2M6.6 6.6A17.6 17.6 0 0 0 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6" />
+                        <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                      </svg>
+                    ) : (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none">
