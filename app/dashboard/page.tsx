@@ -564,9 +564,6 @@ function ScorecardTable({
           ช่อง &quot;รอข้อมูล&quot; (Active Stores, วันทำงานตาม Invoice, Avg.Call/Day, Line/Bill ของ PDC/DC) จะขึ้นหลังรัน supabase/kpi_store.sql และรอคำนวณย้อนหลังเสร็จ
         </p>
       )}
-      <p className="sc-pending">
-        <b>รอข้อมูลชุดใหม่ (NewDataset):</b> Coverage · Visit Call vs Target · Productive Call / Avg.Call / Line / Baht vs Target (KPI DSR) · Golden Point Q DGP · CD1–CD3 · สินค้าใหม่ IMR / HFS · Brand of the month · ยอด SaleOrders · KPI by Princ
-      </p>
     </section>
   );
 }
@@ -984,8 +981,6 @@ export default async function SalesOverviewPage({
         .sc-stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .sc-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
         .sc-big { font: 600 16px var(--font-display); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
-        .sc-pending { margin-top: 12px; font-size: 12px; color: var(--text-2); line-height: 1.6; padding: 10px 12px; border-radius: 8px; background: var(--alt); }
-        .sc-pending b { color: #C2410C; }
         @container card (max-width: 800px) {
           .score td.sc-label { background: var(--brand-50); margin: -8px -14px 6px; padding: 10px 14px; width: auto; border-radius: 12px 12px 0 0; flex-direction: column; align-items: flex-start; text-align: left; }
           .score td:not(.sc-label) { align-items: flex-start; }
