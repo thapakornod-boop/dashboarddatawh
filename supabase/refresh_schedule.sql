@@ -5,15 +5,16 @@
 
 select cron.unschedule(jobid) from cron.job where jobname in ('dashboard-refresh', 'kpi-refresh');
 
--- ช่วงวันที่อิงวันที่ไทย (รอบ 06:30 ไทย ยังเป็นวันก่อนหน้าใน UTC)
+-- คำนวณใหม่ตั้งแต่วันที่ 1 ของเดือนก่อน ถึงวันนี้ (อิงวันที่ไทย — รอบ 06:30 ไทย ยังเป็นวันก่อนหน้าใน UTC)
+-- ครอบคลุมทุกครั้งที่หลังบ้านดึงข้อมูลเดือนก่อนซ้ำ ถ้าแก้ข้อมูลเก่ากว่านั้น ให้รัน dashboard_refresh / kpi_refresh ของเดือนนั้นเอง
 select cron.schedule('dashboard-refresh', '30 23,5,10 * * *', $$
   select public.dashboard_refresh(
-    (now() at time zone 'Asia/Bangkok')::date - 40,
+    (date_trunc('month', now() at time zone 'Asia/Bangkok') - interval '1 month')::date,
     (now() at time zone 'Asia/Bangkok')::date + 1)
 $$);
 select cron.schedule('kpi-refresh', '35 23,5,10 * * *', $$
   select public.kpi_refresh(
-    (now() at time zone 'Asia/Bangkok')::date - 40,
+    (date_trunc('month', now() at time zone 'Asia/Bangkok') - interval '1 month')::date,
     (now() at time zone 'Asia/Bangkok')::date + 1)
 $$);
 
