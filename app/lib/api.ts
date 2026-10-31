@@ -3,7 +3,7 @@
 // ซึ่งคิด GIV / NIV ตามกฎเดียวกับรายงาน Excel แล้ว:
 //   - ตัด series ที่ลงท้าย CMP / DMP / -VAT
 //   - SDO นับทุกเซลล์ยกเว้นรหัสที่มี GSM, PDC / DC นับเฉพาะเซลล์ใน seller_principal
-// อัปเดตทุกชั่วโมง (pg_cron) — ใช้ฝั่ง server เท่านั้น ห้ามใช้ key นี้ใน client
+// อัปเดตวันละ 3 รอบ 06:30 / 12:30 / 17:30 (pg_cron) — ใช้ฝั่ง server เท่านั้น ห้ามใช้ key นี้ใน client
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 
@@ -131,7 +131,7 @@ export async function rpc<T>(fn: string, args: Record<string, unknown>): Promise
         method: 'POST',
         headers,
         body: JSON.stringify(args),
-        // ไม่ cache — ไม่งั้นค่าว่าง/ค่าเก่าจะค้าง (ตารางสรุปอัปเดตทุกชั่วโมงอยู่แล้ว)
+        // ไม่ cache — ไม่งั้นค่าว่าง/ค่าเก่าจะค้าง (ตารางสรุปอัปเดตตามรอบอยู่แล้ว)
         cache: 'no-store',
       }
     );
@@ -152,7 +152,7 @@ export async function selectTable<T>(query: string): Promise<T[]> {
   return (await res.json()) as T[];
 }
 
-// cache ในหน่วยความจำ 5 นาที — ตารางสรุปอัปเดตทุกชั่วโมงอยู่แล้ว
+// cache ในหน่วยความจำ 5 นาที — ตารางสรุปอัปเดตตามรอบอยู่แล้ว
 // เปิดซ้ำ / เปลี่ยน filter ไปมาจะไม่ต้องยิง Supabase ใหม่ทุกครั้ง (เก็บ Promise กันยิงซ้ำตอนโหลดพร้อมกัน)
 const CACHE_MS = 5 * 60 * 1000;
 const memo = new Map<string, { at: number; value: Promise<unknown> }>();

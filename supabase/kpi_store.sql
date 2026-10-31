@@ -108,9 +108,8 @@ revoke execute on function public.kpi_refresh(date, date) from public, anon, aut
 revoke execute on function public.dashboard_kpi(date, date) from public, anon, authenticated;
 grant execute on function public.dashboard_kpi(date, date) to service_role;
 
--- 4) อัปเดตอัตโนมัติ: ทุกชั่วโมงนาทีที่ 10 คำนวณ 40 วันล่าสุดใหม่ ----------------------
-select cron.unschedule(jobid) from cron.job where jobname in ('kpi-refresh', 'kpi-backfill');
-select cron.schedule('kpi-refresh', '10 * * * *', 'select public.kpi_refresh(current_date - 40, current_date + 1)');
+-- 4) อัปเดตอัตโนมัติ: รอบเวลาอยู่ใน refresh_schedule.sql (06:35 / 12:35 / 17:35 เวลาไทย) ----------
+select cron.unschedule(jobid) from cron.job where jobname in ('kpi-backfill');
 
 -- 5) เติมข้อมูลย้อนหลังทีละเดือน (เดือนปัจจุบัน → ม.ค. ปีที่แล้ว) นาทีละเดือน แล้วหยุดเอง --------
 create table if not exists public.kpi_backfill (id int primary key default 1, next_month date not null);
