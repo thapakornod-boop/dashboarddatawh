@@ -46,6 +46,7 @@ as $$
   from public.vw_lg014
   cross join lateral (
     select case
+      when coalesce(line_total, 0) = 0 then 0   -- ของแถม (ดู free_goods.sql)
       when company_code = 'SDO' then
         (case when doc_type ilike '%credit%' then -1 else 1 end)
         * greatest(
