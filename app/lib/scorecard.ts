@@ -40,7 +40,7 @@ function shiftMonth(ym: string, n: number) {
   return d.toISOString().slice(0, 7);
 }
 // ย้อนช่วงไป 1 ปี: ใช้วันสุดท้ายแบบรวม แล้วค่อย +1 วัน (29 ก.พ. → 28 ก.พ.)
-const lastYear = (r: Range): Range => ({ from: shiftYears(r.from, 1), to: addDays(shiftYears(addDays(r.to, -1), 1), 1) });
+export const lastYear = (r: Range): Range => ({ from: shiftYears(r.from, 1), to: addDays(shiftYears(addDays(r.to, -1), 1), 1) });
 
 export async function loadScorecard({
   toYM, fromYM, latestDate, months, companies,

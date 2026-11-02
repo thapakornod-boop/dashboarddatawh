@@ -5,11 +5,14 @@ import {
   monthToRange,
   shiftYears,
   addDays,
+  getBranchSales,
+  BranchRow,
   LG014SellerRow,
 } from '@/app/lib/api';
 import { getTargets, preloadTargets, TargetRow } from '@/app/lib/targets';
 import { timeGone, TimeGone } from '@/app/lib/workdays';
-import { loadScorecard, Scorecard, CompanyScore, MAX_RANGE_MONTHS } from '@/app/lib/scorecard';
+import { lastYear, loadScorecard, Scorecard, CompanyScore, MAX_RANGE_MONTHS } from '@/app/lib/scorecard';
+import { BranchSales } from '@/app/components/BranchSales';
 import {
   COMPANY_COLORS, fmtInt, fmtNum, fmtPct, fmtShort, paceColor, pctGrowth, pctOf,
 } from '@/app/lib/format';
@@ -544,6 +547,7 @@ export default async function SalesOverviewPage({
   let targetRows: TargetRow[] = [];
   let targetMonths: string[] = [];
   let scorecard: Scorecard | null = null;
+  let branch: { cur: BranchRow[]; prev: BranchRow[] } | null = null;
 
   try {
     preloadTargets();
@@ -568,7 +572,13 @@ export default async function SalesOverviewPage({
     };
 
     // ดึงรายเดือน (ปีนี้ + ปีก่อน) แล้วค่อยรวมเป็นช่วง — ตารางสรุปรายวันเร็วพอ และ cache ไว้ 5 นาที
-    const [cur, prev, targets, sc] = await Promise.all([
+    // ยอดรายสาขา: ช่วงที่เลือก (เดือนปัจจุบันนับถึงวันที่ข้อมูลล่าสุด) เทียบช่วงเดียวกันปีก่อน
+    const monthEnd = addDays(monthToRange(toYM).endDate, 1);
+    const rangeEnd = latestDate < monthEnd ? addDays(latestDate, 1) : monthEnd;
+    const branchRange = { from: `${fromYM}-01`, to: rangeEnd };
+    const branchPrev = lastYear(branchRange);
+
+    const [cur, prev, targets, sc, bCur, bPrev] = await Promise.all([
       Promise.all(fetchMonths.map((m) => getLG014Summary(monthToRange(m)))),
       Promise.all(fetchMonths.map((m) => getLG014Summary(prevRange(m)))),
       getTargets(fetchMonths[0] ?? fromYM, toYM).catch((err: unknown) => {
@@ -580,8 +590,11 @@ export default async function SalesOverviewPage({
         toYM, fromYM, latestDate, months,
         companies: companyFilter === 'all' ? COMPANY_ORDER : [companyFilter],
       }),
+      getBranchSales(branchRange.from, branchRange.to),
+      getBranchSales(branchPrev.from, branchPrev.to),
     ]);
     scorecard = sc;
+    if (bCur) branch = { cur: bCur, prev: bPrev ?? [] };
     fetchMonths.forEach((m, i) => {
       curByYM.set(m, cur[i].bySeller);
       prevByYM.set(m, prev[i].bySeller);
@@ -696,6 +709,17 @@ export default async function SalesOverviewPage({
                   </MetricCard>
                   <MetricCard label="NIV" sub="ยอดสุทธิ"
                     cur={grandCurrent.NIV} prev={grandPrevious.NIV} hasPrev={hasPrev} prevLabel={prevRangeLabel} />
+                </div>
+
+                {/* ─── 2.4 GIV รายสาขา ─── */}
+                <div className="section">
+                  <div className="section-title"><h2>ยอดขายรายสาขา</h2><span>{rangeLabel} · เทียบ {prevRangeLabel}</span></div>
+                  {branch ? (
+                    <BranchSales cur={branch.cur} prev={branch.prev} companies={companies}
+                      curLabel={rangeLabel} prevLabel={prevRangeLabel} nMonths={rangeMonths.length} />
+                  ) : (
+                    <p className="empty">รอข้อมูลรายสาขา — รัน supabase/branch_sales.sql ใน Supabase ก่อน</p>
+                  )}
                 </div>
 
                 {/* ─── 2.5 Scorecard รายบริษัท ─── */}

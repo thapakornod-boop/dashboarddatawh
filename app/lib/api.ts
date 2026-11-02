@@ -215,6 +215,26 @@ export function getCompanyKpi(from: string, to: string): Promise<Record<string, 
   });
 }
 
+// ยอดรายสาขา × principal จาก RPC dashboard_branch (supabase/branch_sales.sql)
+// ยังไม่ได้รัน SQL → null (หน้าเว็บแสดง "รอข้อมูล")
+export type BranchRow = { company: string; branch: string; principal: string; giv: number; niv: number };
+
+export function getBranchSales(from: string, to: string): Promise<BranchRow[] | null> {
+  return cached(`branch|${from}|${to}`, async () => {
+    try {
+      const rows = await rpc<{ company_code: string; branch: string; principal: string; giv: number; niv: number }>(
+        'dashboard_branch', { p_from: from, p_to: to }
+      );
+      return rows.map((r) => ({
+        company: r.company_code, branch: r.branch, principal: r.principal, giv: Number(r.giv), niv: Number(r.niv),
+      }));
+    } catch (err) {
+      if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+      throw err;
+    }
+  });
+}
+
 // เดือนที่มีข้อมูลจริง (เก่า → ใหม่) ไว้ทำตัวเลือก filter
 // ตัดเดือนที่มีแค่เอกสารหลงมาไม่กี่ใบ (ยอด < 1% ของเดือนที่สูงสุด) เช่น 2025-01 ที่มี 587 บาท
 export function getAvailableMonths(): Promise<string[]> {

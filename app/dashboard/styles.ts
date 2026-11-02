@@ -317,6 +317,10 @@ export const DASHBOARD_CSS = `
         }
 
         /* ── ยอดขายตามทีม ── */
+        .branch-table tfoot td { font-weight: 600; }
+        .idx-chip { display: inline-block; min-width: 56px; padding: 3px 10px; border-radius: 6px; font-weight: 600; text-align: center; }
+        .idx-chip.up { background: #D9F7BE; color: #237804; }
+        .idx-chip.down { background: #FFF1F0; color: #CF1322; }
         .team-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
         .team-summary { display: grid; grid-template-columns: 1.3fr repeat(3, 1fr); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 16px; }
         .ts-item { display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; border-left: 1px solid var(--border); min-width: 0; }
