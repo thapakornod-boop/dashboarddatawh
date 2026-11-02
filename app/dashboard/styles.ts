@@ -317,7 +317,19 @@ export const DASHBOARD_CSS = `
         }
 
         /* ── ยอดขายตามทีม ── */
-        .branch-table tfoot td { font-weight: 600; }
+        .branch-table { font-size: 16px; table-layout: fixed; }
+        .branch-table th { font-size: 13.5px; padding: 12px 16px; }
+        .branch-table td { padding: 14px 16px; }
+        .branch-table th:first-child { width: 14%; }
+        .branch-table td.strong { font-size: 17px; font-weight: 700; }
+        .branch-table tfoot td { font-weight: 700; font-size: 17px; }
+        .branch-table .idx-chip { font-size: 15px; min-width: 64px; padding: 4px 12px; }
+        @container card (max-width: 800px) {
+          .branch-table { font-size: 15px; table-layout: auto; }
+          .branch-table td { padding: 9px 0; }
+          .branch-table td::before { font-size: 13px; }
+          .branch-table td.strong, .branch-table tfoot td { font-size: 16px; }
+        }
         .idx-chip { display: inline-block; min-width: 56px; padding: 3px 10px; border-radius: 6px; font-weight: 600; text-align: center; }
         .idx-chip.up { background: #D9F7BE; color: #237804; }
         .idx-chip.down { background: #FFF1F0; color: #CF1322; }
