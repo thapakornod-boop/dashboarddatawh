@@ -242,6 +242,11 @@ async function allTargets() {
   return loading;
 }
 
+// ปุ่ม "รีเฟรชข้อมูลชีต": ลืม cache → ครั้งถัดไปอ่านชีตใหม่ทันที
+export function clearTargetsCache() {
+  cache = null;
+}
+
 // เริ่มโหลดชีตล่วงหน้า (ชีต ~1 วินาที) ระหว่างรอข้อมูลอื่น — getTargets จะใช้ Promise เดียวกัน
 export function preloadTargets() {
   allTargets().catch(() => {}); // error จะไปโผล่ตอนเรียก getTargets

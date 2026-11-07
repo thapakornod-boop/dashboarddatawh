@@ -24,10 +24,20 @@ function IconTeam() {
   );
 }
 
+function IconStore() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 9l1.5-5h15L21 9M3 9h18M3 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3" />
+      <path d="M5 12v8h14v-8M10 20v-5h4v5" />
+    </svg>
+  );
+}
+
 // เพิ่มเมนูใหม่ในอนาคต = เพิ่มรายการตรงนี้
 const ITEMS = [
   { href: '/dashboard', label: 'ภาพรวมยอดขาย', icon: <IconChart /> },
   { href: '/dashboard/team', label: 'ยอดขายรายทีม', icon: <IconTeam /> },
+  { href: '/dashboard/stores', label: 'ยอดขายรายร้าน', icon: <IconStore /> },
 ];
 
 export default function SidebarNav() {

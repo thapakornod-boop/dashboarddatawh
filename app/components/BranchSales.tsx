@@ -6,10 +6,10 @@ import { fmtInt } from '@/app/lib/format';
 
 // ยอดขาย GIV รายสาขา: ช่วงที่เลือก เทียบช่วงเดียวกันปีก่อน + Index + ยอดเฉลี่ยต่อเดือน
 // เลือกบริษัท / Princ ได้ในการ์ด (บริษัทที่เลือกได้ = ตาม filter ด้านบน)
-const BRANCH_ORDER = ['RSM', 'UTH', 'KKC', 'RCB', 'BON', 'PSL', 'PTT', 'SRT', 'HDY'];
+export const BRANCH_ORDER = ['RSM', 'UTH', 'KKC', 'RCB', 'BON', 'PSL', 'PTT', 'SRT', 'HDY'];
 const ALL = '';
 
-const rank = (b: string) => {
+export const rank = (b: string) => {
   const i = BRANCH_ORDER.indexOf(b);
   return i < 0 ? BRANCH_ORDER.length : i;
 };

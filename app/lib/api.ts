@@ -166,6 +166,11 @@ function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   return value;
 }
 
+// ปุ่มรีเฟรช: ลืม cache ทั้งหมด → โหลดจาก Supabase ใหม่
+export function clearDataCache() {
+  memo.clear();
+}
+
 // วันที่เอกสารล่าสุดในตารางสรุป เช่น "2026-10-29"
 export function getLatestDate(): Promise<string> {
   return cached('latest', async () => {
@@ -232,6 +237,96 @@ export function getBranchSales(from: string, to: string): Promise<BranchRow[] | 
       if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
       throw err;
     }
+  });
+}
+
+// ยอดราย บริษัท × สาขา × เซลล์ × princ จาก RPC dashboard_branch_princ (supabase/princ_store.sql)
+// princ ของ PDC / DC ดูจากหัวรหัสสินค้า — ยังไม่ได้รัน SQL → null
+export type BranchPrincRow = { company: string; branch: string; seller: string; principal: string; giv: number; niv: number };
+
+export function getBranchPrinc(from: string, to: string): Promise<BranchPrincRow[] | null> {
+  return cached(`bprinc|${from}|${to}`, async () => {
+    try {
+      const rows = await rpc<{ company_code: string; branch: string; seller: string; principal: string | null; giv: number; niv: number }>(
+        'dashboard_branch_princ', { p_from: from, p_to: to }
+      );
+      return rows.map((r) => ({
+        company: r.company_code, branch: r.branch, seller: r.seller, principal: r.principal ?? '-',
+        giv: Number(r.giv), niv: Number(r.niv),
+      }));
+    } catch (err) {
+      if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+      throw err;
+    }
+  });
+}
+
+// ── ยอดขายรายร้าน (supabase/princ_store.sql) ─────────────────────────
+export type StoreHit = { rsmcode: string | null; company: string; cardcode: string; name: string };
+
+// ค้นด้วย รหัสร้าน / RSM code / ชื่อร้าน — ร้านที่ RSM code เดียวกันในบริษัทอื่นมาด้วย (ไม่ cache: ค้นสด)
+export async function searchStores(q: string): Promise<StoreHit[]> {
+  const rows = await rpc<{ rsmcode: string | null; company_code: string; cardcode: string; card_name: string | null }>(
+    'store_search', { p_q: q }
+  );
+  return rows.map((r) => ({ rsmcode: r.rsmcode, company: r.company_code, cardcode: r.cardcode, name: r.card_name ?? '' }));
+}
+
+// ยอดรายเดือนของร้าน (กราฟแนวโน้ม) — supabase/store_monthly.sql · ยังไม่ได้รัน → null
+export type StoreMonthRow = { ym: string; company: string; giv: number; niv: number; bills: number; lastD: string | null };
+
+export function getStoreMonthly(keys: string[], from: string, to: string): Promise<StoreMonthRow[] | null> {
+  return cached(`storem|${keys.join(',')}|${from}|${to}`, async () => {
+    try {
+      const rows = await rpc<{ ym: string; company_code: string; giv: number; niv: number; bills: number; last_d: string | null }>(
+        'store_monthly', { p_keys: keys, p_from: from, p_to: to }
+      );
+      return rows.map((r) => ({
+        ym: r.ym, company: r.company_code, giv: Number(r.giv), niv: Number(r.niv), bills: Number(r.bills), lastD: r.last_d,
+      }));
+    } catch (err) {
+      if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+      throw err;
+    }
+  });
+}
+
+// คำแนะนำตอนพิมพ์ (สูงสุด 10 ร้าน) — supabase/store_suggest.sql
+export async function suggestStores(q: string): Promise<StoreHit[]> {
+  const rows = await rpc<{ rsmcode: string | null; company_code: string; cardcode: string; card_name: string | null }>(
+    'store_suggest', { p_q: q }
+  );
+  return rows.map((r) => ({ rsmcode: r.rsmcode, company: r.company_code, cardcode: r.cardcode, name: r.card_name ?? '' }));
+}
+
+// ร้านตัวอย่าง: ยอด GIV สูงสุดของวันที่ d — ยังไม่ได้รัน SQL → []
+export function getTopStores(d: string): Promise<(StoreHit & { giv: number })[]> {
+  return cached(`top|${d}`, async () => {
+    try {
+      const rows = await rpc<{ rsmcode: string | null; company_code: string; cardcode: string; card_name: string | null; giv: number }>(
+        'store_top', { p_d: d, p_limit: 14 }
+      );
+      // ตัดบัญชีเคลม (เช่น "FNT-CLAIM FNT") — ไม่ใช่ร้านค้าจริง
+      return rows.filter((r) => !/CLAIM/i.test(r.cardcode)).slice(0, 8).map((r) => ({ rsmcode: r.rsmcode, company: r.company_code, cardcode: r.cardcode, name: r.card_name ?? '', giv: Number(r.giv) }));
+    } catch (err) {
+      if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return [];
+      throw err;
+    }
+  });
+}
+
+export type StoreSalesRow = { company: string; cardcode: string; principal: string; giv: number; niv: number; bills: number };
+
+// ยอดของร้าน (keys = "SDO|10100004") ช่วง [from, to)
+export function getStoreSales(keys: string[], from: string, to: string): Promise<StoreSalesRow[]> {
+  return cached(`store|${keys.join(',')}|${from}|${to}`, async () => {
+    const rows = await rpc<{ company_code: string; cardcode: string; principal: string | null; giv: number; niv: number; bills: number }>(
+      'store_sales', { p_keys: keys, p_from: from, p_to: to }
+    );
+    return rows.map((r) => ({
+      company: r.company_code, cardcode: r.cardcode, principal: r.principal ?? '-',
+      giv: Number(r.giv), niv: Number(r.niv), bills: Number(r.bills),
+    }));
   });
 }
 
