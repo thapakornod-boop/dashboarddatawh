@@ -344,7 +344,46 @@ export const DASHBOARD_CSS = `
         /* ── หน้ายอดขายรายร้าน ── */
         .st-search .card-sub { margin-bottom: 14px; }
         .st-count { margin: 14px 0 0; font-size: 13px; color: var(--text-2); }
-        .store-chip-name { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+        .store-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+        .store-chip { min-width: 0; }
+        .store-examples > *, .st-search > * { min-width: 0; }
+        .store-chip-val { flex-shrink: 0; }
+        /* มือถือ: ชิปร้านเต็มแถว ชื่อยาวตัด … ไม่ล้นการ์ด · โปรไฟล์ร้าน รูปเล็กลงอยู่ข้างชื่อ */
+        @container card (max-width: 520px) {
+          .store-chips { display: grid; grid-template-columns: minmax(0, 1fr); }
+          .store-chip { width: 100%; }
+          .store-chip-name { max-width: none; flex: 1 1 auto; }
+          .card.st-profile { gap: 12px 14px; }
+          .st-profile .st-avatar { width: 48px; height: 48px; border-radius: 12px; }
+          .st-profile .st-who { flex: 1 1 180px; }
+          .st-profile .st-name h2 { font-size: 19px; }
+          .st-search .card-sub { display: none; }
+          .st-search .card-title { margin-bottom: 10px; }
+          /* ร้านตัวอย่าง: โชว์ 4 ร้าน ที่เหลือกด "ดูเพิ่ม" */
+          .store-chip.extra { display: none; }
+          .st-search .store-more { display: block; }
+          .st-meta { grid-auto-flow: row; justify-items: start; text-align: left; font-size: 13px; gap: 2px; }
+          .st-codes { font-size: 12px; }
+        }
+        .store-more { display: none; }
+        .store-more summary { cursor: pointer; font-size: 13px; color: var(--primary); padding: 4px 0; width: fit-content; }
+        .store-more .store-chips { margin-top: 8px; }
+        /* ตารางรายละเอียดร้านบนจอแคบ: แถวละ 2 บรรทัด (Princ | GIV · บริษัทรหัส | สัดส่วน) แทนการ์ด 6 บรรทัด */
+        @container card (max-width: 800px) {
+          .store-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px; padding: 10px 12px; margin-bottom: 8px; }
+          .store-table td { display: block; padding: 0; border: none !important; text-align: left; }
+          .store-table td::before { content: none; }
+          .store-table tbody tr:not(.grp) td:nth-child(2) { grid-area: 1 / 1; font-size: 15px; }
+          .store-table tbody tr:not(.grp) td:nth-child(3) { grid-area: 1 / 2; text-align: right; font-size: 15px; }
+          .store-table tbody tr:not(.grp) td:nth-child(1) { grid-area: 2 / 1; font-size: 12px; overflow-wrap: anywhere; }
+          .store-table tbody tr:not(.grp) td:nth-child(6) { grid-area: 2 / 2; text-align: right; font-size: 12px; }
+          .store-table tbody tr:not(.grp) td:nth-child(4), .store-table tbody tr:not(.grp) td:nth-child(5) { display: none; }
+          .store-table tr.grp td:nth-child(1), .store-table tfoot td:nth-child(1) { grid-area: 1 / 1; }
+          .store-table tr.grp td:nth-child(2), .store-table tfoot td:nth-child(2) { grid-area: 1 / 2; text-align: right; }
+          .store-table tr.grp td:nth-child(5), .store-table tfoot td:nth-child(5) { grid-area: 2 / 2; text-align: right; font-size: 12px; color: var(--text-2); }
+          .store-table tr.grp td:nth-child(3), .store-table tr.grp td:nth-child(4),
+          .store-table tfoot td:nth-child(3), .store-table tfoot td:nth-child(4) { display: none; }
+        }
         .store-chip-val { margin-left: 8px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
         .st-profile { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 20px; background: linear-gradient(135deg, var(--brand-50), var(--surface) 60%); }
         .st-avatar { width: 64px; height: 64px; flex-shrink: 0; border-radius: 16px; display: grid; place-items: center; background: var(--brand); color: #fff; font: 600 28px var(--font-display); box-shadow: 0 6px 16px rgba(48,120,248,.28); }
@@ -503,6 +542,27 @@ export const DASHBOARD_CSS = `
           .filters-hint { margin-left: 0; }
           .co-cols { grid-template-columns: 1fr; }
           .co-col + .co-col { border-left: none; padding-left: 0; border-top: 1px solid var(--border); padding-top: 12px; }
+
+          /* ── มือถือ: บีบให้เลื่อนน้อยที่สุด ── */
+          .container { gap: 14px; padding-bottom: 32px; }
+          .hero { padding: 18px 16px 56px; }
+          .hero h1 { font-size: 23px; }
+          .hero p { margin-top: 2px; font-size: 14px; }
+          .hero-inner { gap: 10px; }
+          .hero-side { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+          .hero-chip { padding: 4px 10px; font-size: 12px; }
+          /* ตัวกรองช่วงเดือน: 2 คอลัมน์ (ตั้งแต่ | ถึง · บริษัท | ปุ่มค้นหา) */
+          .filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+          .filters > * { min-width: 0; }
+          .filters select { width: 100%; min-width: 0; }
+          /* ช่องค้นหาร้าน + ปุ่มค้นหา อยู่บรรทัดเดียวกัน */
+          .store-search { flex-wrap: nowrap; }
+          .store-box { flex: 1 1 0; }
+          .store-search .btn { flex-shrink: 0; height: 44px; }
+          .filters .field-label { font-size: 12px; }
+          .filters .btn { align-self: end; }
+          .filters-hint { display: none; }
+          .card { padding: 14px; }
         }
 
         /* ── SweetAlert2 ให้เข้ากับธีม ── */

@@ -71,6 +71,43 @@ as $$
   order by t.giv desc;
 $$;
 
+-- 4) ค้นแบบเต็ม (ปุ่มค้นหา / กดร้าน): เขียนใหม่ให้ใช้ index ด้านบน — แยกเงื่อนไขทีละอย่าง (OR รวมกันจะอ่านทั้งตาราง)
+create or replace function public.store_search(p_q text)
+returns table (rsmcode varchar, company_code varchar, cardcode varchar, card_name text)
+language sql
+stable
+as $$
+  with q as (select trim(p_q) as q),
+  hit as (
+    (select n.company_code, n.cardcode from public.store_names n, q where n.cardcode ilike q.q || '%' limit 60)
+    union
+    (select n.company_code, n.cardcode from public.store_names n, q where n.card_name ilike '%' || q.q || '%' limit 60)
+    union
+    (select r.company_code, r.cardcode from public.vw_rsmcode r, q where r.rsmcode ilike q.q || '%' limit 60)
+    union
+    (select r.company_code, r.cardcode from public.vw_rsmcode r, q where r.cardcode ilike q.q || '%' limit 60)
+  ),
+  -- ร้านที่มี RSM code เดียวกัน = ร้านเดียวกันในบริษัทอื่น ดึงมาด้วย
+  grp as (
+    select distinct r.rsmcode from hit join public.vw_rsmcode r
+      on r.company_code = hit.company_code and r.cardcode = hit.cardcode
+  ),
+  allc as (
+    select company_code, cardcode from hit
+    union
+    select r.company_code, r.cardcode from grp join public.vw_rsmcode r on r.rsmcode = grp.rsmcode
+  )
+  select (select min(r.rsmcode) from public.vw_rsmcode r where r.company_code = a.company_code and r.cardcode = a.cardcode)::varchar,
+         a.company_code::varchar, a.cardcode::varchar, n.card_name::text
+  from allc a
+  left join public.store_names n on n.company_code = a.company_code and n.cardcode = a.cardcode
+  where length(trim(p_q)) >= 2
+  order by 1 nulls last, 2, 3
+  limit 60;
+$$;
+revoke execute on function public.store_search(text) from public, anon, authenticated;
+grant execute on function public.store_search(text) to service_role;
+
 revoke execute on function public.store_suggest(text) from public, anon, authenticated;
 revoke execute on function public.store_top(date, int) from public, anon, authenticated;
 grant execute on function public.store_suggest(text) to service_role;

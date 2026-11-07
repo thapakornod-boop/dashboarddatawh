@@ -1,7 +1,6 @@
 // ยอดขายรายร้าน: ค้นด้วย รหัสร้าน (cardcode) / RSM code / ชื่อร้าน → ภาพรวมร้าน (KPI / แนวโน้มรายเดือน / สัดส่วน Princ / บริษัท)
 // ร้านเดียวกันคนละบริษัทผูกกันด้วย RSM code (vw_rsmcode) · ชื่อร้าน / ยอดขาย จาก vw_lg014 (ทุกเซลล์ ยกเว้น GSM)
 // ช่วงเดือน / บริษัท ตามตัวกรองด้านบน (?from=&to=&company=) + ?q= คำค้น + ?store= ร้านที่เลือก
-import Link from 'next/link';
 import {
   addDays, getAvailableMonths, getLatestDate, getStoreMonthly, getStoreSales, getTopStores, monthToRange, searchStores,
   type StoreHit, type StoreMonthRow, type StoreSalesRow,
@@ -11,6 +10,7 @@ import { COMPANY_ORDER, companyFromParams, formatDate, formatRange, rangeFromPar
 import { COMPANY_COLORS, fmtInt, fmtShort } from '@/app/lib/format';
 import { LoadingDone } from '@/app/components/Loading';
 import StoreSearch from '@/app/components/StoreSearch';
+import LoadingLink from '@/app/components/LoadingLink';
 import StoreTrend, { type TrendMonth } from '@/app/components/StoreTrend';
 import { Hero, RangeFilter } from '../parts';
 
@@ -120,6 +120,15 @@ export default async function StoreSalesPage({
   const daysSince = lastBuy ? Math.round((Date.parse(latestDate) - Date.parse(lastBuy)) / 86_400_000) : null;
   const pct = (v: number) => (total.giv ? `${((v / total.giv) * 100).toFixed(1)}%` : '–');
   const storeName = selected ? nameOf(selected) : '';
+  const chip = (e: StoreHit & { giv: number }, i: number, extra: boolean) => (
+    <LoadingLink key={`${e.company}|${e.cardcode}`} scrollToId="store-profile"
+      className={`store-chip${i === 0 ? ' active' : ''}${extra ? ' extra' : ''}`}
+      href={`?${new URLSearchParams({ ...keep, q: e.rsmcode ?? e.cardcode, store: e.rsmcode ?? `${e.company}|${e.cardcode}` }).toString()}`}>
+      <span className="dot" style={{ background: COMPANY_COLORS[e.company] }} />
+      <span className="store-chip-name">{e.name || e.cardcode}</span>
+      <span className="store-chip-val">{fmtShort(e.giv)}</span>
+    </LoadingLink>
+  );
 
   return (
     <>
@@ -145,16 +154,14 @@ export default async function StoreSalesPage({
           {examples.length > 0 && (
             <div className="store-examples">
               <span className="field-label">ร้านยอดสูงสุดวันที่ {formatDate(latestDate)} · กดเพื่อดู</span>
-              <div className="store-chips">
-                {examples.map((e, i) => (
-                  <Link key={`${e.company}|${e.cardcode}`} className={`store-chip${i === 0 ? ' active' : ''}`}
-                    href={`?${new URLSearchParams({ ...keep, q: e.rsmcode ?? e.cardcode, store: e.rsmcode ?? `${e.company}|${e.cardcode}` }).toString()}`}>
-                    <span className="dot" style={{ background: COMPANY_COLORS[e.company] }} />
-                    <span className="store-chip-name">{e.name || e.cardcode}</span>
-                    <span className="store-chip-val">{fmtShort(e.giv)}</span>
-                  </Link>
-                ))}
-              </div>
+              <div className="store-chips">{examples.map((e, i) => chip(e, i, i >= 4))}</div>
+              {/* มือถือ: ซ่อนร้านที่ 5 เป็นต้นไปไว้ใต้ "ดูเพิ่ม" (คอมโชว์ครบในแถวด้านบน) */}
+              {examples.length > 4 && (
+                <details className="store-more">
+                  <summary>ดูอีก {examples.length - 4} ร้าน</summary>
+                  <div className="store-chips">{examples.slice(4).map((e, i) => chip(e, i + 4, false))}</div>
+                </details>
+              )}
             </div>
           )}
 
@@ -165,7 +172,7 @@ export default async function StoreSalesPage({
               <ul className="store-hits">
                 {groups.map((g) => (
                   <li key={g.key}>
-                    <Link href={hrefFor(g)} className={`store-hit${selected?.key === g.key ? ' active' : ''}`}>
+                    <LoadingLink href={hrefFor(g)} scrollToId="store-profile" className={`store-hit${selected?.key === g.key ? ' active' : ''}`}>
                       <span className="store-hit-name">{nameOf(g)}</span>
                       <span className="store-hit-codes">
                         {g.rsmcode && <span className="code">{g.rsmcode}</span>}
@@ -175,7 +182,7 @@ export default async function StoreSalesPage({
                           </span>
                         ))}
                       </span>
-                    </Link>
+                    </LoadingLink>
                   </li>
                 ))}
               </ul>
@@ -186,10 +193,12 @@ export default async function StoreSalesPage({
         {selected && (
           <>
             {/* ── โปรไฟล์ร้าน ── */}
-            <section className="card st-profile">
-              {/* ตัวอักษรแรกของชื่อร้าน (ตัดคำนำหน้า บริษัท / หจก. / ร้าน และข้ามสระหน้า เ แ โ ใ ไ) */}
+            <section className="card st-profile" id="store-profile">
               <div className="st-avatar" aria-hidden="true">
-                {storeName.replace(/^(บริษัท|บจก\.?|ห้างหุ้นส่วน(จำกัด)?|หจก\.?|ร้าน)\s*/, '').match(/[ก-ฮA-Za-z0-9]/)?.[0] ?? '?'}
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 9l1.5-5h15L21 9M3 9h18M3 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3" />
+                  <path d="M5 12v8h14v-8M10 20v-5h4v5" />
+                </svg>
               </div>
               <div className="st-who">
                 <div className="st-name">
