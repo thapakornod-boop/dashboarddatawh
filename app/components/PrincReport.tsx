@@ -98,7 +98,7 @@ function Sheet({ rows, branch, tg, targetLabel, dataLabel }: {
   );
 }
 
-// ไฟล์ Excel: ชีตละสาขา (All + ทุกสาขา) สี / รูปแบบเหมือนรูป — โหลด exceljs เฉพาะตอนกด
+// ไฟล์ Excel: ชีตเดียว "All" — ตาราง All แล้วตามด้วยตารางทุกสาขาเรียงลงมา สี / รูปแบบเหมือนรูป — โหลด exceljs เฉพาะตอนกด
 async function buildExcel(rows: PrincReportRow[], keys: string[], tg: number, targetLabel: string, dataLabel: string) {
   const ExcelJS = await import('exceljs');
   const Workbook = ExcelJS.Workbook ?? ExcelJS.default.Workbook;
@@ -108,11 +108,16 @@ async function buildExcel(rows: PrincReportRow[], keys: string[], tg: number, ta
   const bad = { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC7CE' } } as const, font: { color: { argb: 'FF9C0006' } } };
   const border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } } as const;
 
+  const ws = wb.addWorksheet('All');
+  ws.columns = [{ width: 14 }, { width: 22 }, { width: 22 }, { width: 18 }, { width: 13 }, { width: 11 }];
+  ws.addRow([dataLabel]);
+
   for (const b of keys) {
-    const ws = wb.addWorksheet(b || 'All');
-    ws.columns = [{ width: 14 }, { width: 22 }, { width: 22 }, { width: 18 }, { width: 13 }, { width: 11 }];
-    ws.addRow(['Branch', b || '(All)', '', 'Timegone', tg / 100]).getCell(5).numFmt = '0%';
-    ws.addRow([dataLabel]);
+    ws.addRow([]);
+    ws.addRow([]);
+    const top = ws.addRow(['Branch', b || '(All)', '', 'Timegone', tg / 100]);
+    top.getCell(5).numFmt = '0%';
+    [1, 2, 4, 5].forEach((i) => { top.getCell(i).fill = head; top.getCell(i).font = { bold: true }; });
     ws.addRow([]);
     const h = ws.addRow(['Princ', `Sum of Target ${targetLabel}`, 'Sum of ยอดขาย GIV MTD', 'Sum of BE', '% GIV MTD', '% BE']);
     h.eachCell((c) => { c.fill = head; c.font = { bold: true }; c.border = border; c.alignment = { wrapText: true, vertical: 'bottom', horizontal: 'center' }; });
