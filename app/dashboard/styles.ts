@@ -368,7 +368,11 @@ export const DASHBOARD_CSS = `
         .st-kpi-cap { font-size: 13px; color: var(--text-2); }
         @media (max-width: 1024px) { .st-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 420px) { .st-kpis { gap: 10px; } .st-kpi { padding: 14px; } }
-        .st-grid { align-items: start; }
+        /* การ์ดกราฟกับการ์ด Princ สูงเท่ากัน — กราฟยืดตามความสูงของการ์ด Princ */
+        .st-grid { align-items: stretch; }
+        .st-grid > .card { display: flex; flex-direction: column; }
+        .st-grid .trend-chart { flex: 1; display: flex; flex-direction: column; }
+        .st-grid .tc-plot { flex: 1; height: auto; min-height: 240px; }
         .st-split { margin: 6px 0 18px; display: grid; gap: 8px; }
         .st-split-bar { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; background: var(--track); }
         .st-split-bar span { min-width: 3px; }
