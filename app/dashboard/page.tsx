@@ -6,7 +6,9 @@ import {
   shiftYears,
   addDays,
   getBranchSales,
+  getBranchPrinc,
   BranchRow,
+  BranchPrincRow,
   LG014SellerRow,
 } from '@/app/lib/api';
 import { getTargets, preloadTargets, TargetRow } from '@/app/lib/targets';
@@ -24,7 +26,8 @@ import {
   COMPANY_ORDER, companyFromParams, formatDate, formatRange, formatThaiMonth, monthAbbr,
   normalizeCompany, rangeFromParams, shiftYM,
 } from '@/app/lib/period';
-import { Hero, RangeFilter } from './parts';
+import { HealthBanner, Hero, RangeFilter } from './parts';
+import { checkHealth, type HealthIssue } from '@/app/lib/health';
 
 type TrendPoint = { month: string; GIV: number; NIV: number };
 
@@ -348,12 +351,17 @@ const div = (a: number | undefined, b: number | undefined) => (a != null && b ? 
 const fmt1 = (n: number | null) => (n == null ? '–' : n.toLocaleString('th-TH', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
 const fmt0 = (n: number | null) => (n == null ? '–' : Math.round(n).toLocaleString('th-TH'));
 
-// % เทียบฐาน (ยอด ÷ ฐาน): ≥ 100% เขียว ▲ / ต่ำกว่า แดง ▼
+// % เทียบฐาน (ยอด ÷ ฐาน) เป็นป้ายสี: ≥ 100% เขียว ▲ / ต่ำกว่า แดง ▼
+function PctChip({ pct }: { pct: number | null }) {
+  if (pct == null) return <span className="muted">–</span>;
+  return <b className={`sc-chip ${pct >= 100 ? 'up' : 'down'}`}>{pct >= 100 ? '▲' : '▼'} {pct.toFixed(1)}%</b>;
+}
+
 function RatioLine({ label, pct }: { label: string; pct: number | null }) {
   return (
     <span className="sc-line">
       <span className="muted">{label}</span>
-      {pct == null ? <span className="muted">–</span> : <b className={pct >= 100 ? 'growth-up' : 'growth-down'}>{pct >= 100 ? '▲' : '▼'} {pct.toFixed(1)}%</b>}
+      <PctChip pct={pct} />
     </span>
   );
 }
@@ -364,8 +372,8 @@ function CompareLine({ label, cur, base }: { label: string; cur: number | undefi
   return (
     <span className="sc-cmp">
       <span className="sc-line">
-        <span className="muted">{label}</span>
-        {pct == null ? <span className="muted">–</span> : <b className={pct >= 100 ? 'growth-up' : 'growth-down'}>{pct >= 100 ? '▲' : '▼'} {pct.toFixed(1)}%</b>}
+        <span className="sc-metric">{label}</span>
+        <PctChip pct={pct} />
       </span>
       <span className="sc-nums">
         <b>{cur == null ? '–' : fmtShort(cur)}</b>
@@ -484,31 +492,48 @@ function ScorecardTable({
     },
   ];
 
+  // จัดหมวด: ยอดขายก่อน (ดูบ่อยสุด) → ลูกค้า → การเข้าพบ / บิล
+  const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+  const groups: { title: string; keys: string[] }[] = [
+    { title: 'ยอดขาย', keys: ['target', 'base', 'fy', 'cy', 'p3', 'p6'] },
+    { title: 'ลูกค้า', keys: ['stores', 'range'] },
+    { title: 'การเข้าพบ & บิล', keys: ['tg', 'days', 'calls', 'avgcall', 'line', 'baht'] },
+  ];
+
   return (
     <section className="card">
       <header className="card-head">
         <div>
           <h3 className="card-title">Scorecard รายบริษัท · {monthLabel}</h3>
-          <p className="card-sub">ตามนิยาม KPI ฝ่ายขาย · เดือนปัจจุบันนับถึงวันที่ข้อมูลล่าสุดและเทียบปีก่อนถึงวันเดียวกัน</p>
+          <p className="card-sub">ตามนิยาม KPI ฝ่ายขาย · เดือนปัจจุบันนับถึงวันที่ข้อมูลล่าสุดและเทียบปีก่อนถึงวันเดียวกัน · ▲ เขียว = ถึง / เกินฐาน · ▼ แดง = ต่ำกว่าฐาน</p>
         </div>
       </header>
       <table className="rtable score">
+        {/* หัวบริษัทค้างอยู่บนจอตอนเลื่อนลง (sticky) พร้อม GIV เดือนนี้ */}
         <thead>
           <tr>
             <th>ตัวชี้วัด</th>
-            {companies.map((co) => <th key={co}><span className="dot" style={{ background: COMPANY_COLORS[co] }} />{co}</th>)}
+            {companies.map((co) => (
+              <th key={co} className="sc-co" style={{ ['--co' as string]: COMPANY_COLORS[co] }}>
+                <span className="sc-co-name"><span className="dot" style={{ background: COMPANY_COLORS[co] }} />{co}</span>
+                <span className="sc-co-val">{sc.byCompany[co]?.month ? fmtShort(sc.byCompany[co].month!.giv) : '–'} <span className="muted">GIV</span></span>
+              </th>
+            ))}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.key}>
-              <td className="sc-label"><b>{r.label}</b>{r.note && <span className="muted">{r.note}</span>}</td>
-              {companies.map((co) => (
-                <td key={co} data-label={co}>{sc.byCompany[co] ? r.cell(sc.byCompany[co], co) : '–'}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
+        {groups.map((g) => (
+          <tbody key={g.title}>
+            <tr className="sc-group"><td colSpan={companies.length + 1}>{g.title}</td></tr>
+            {g.keys.map((k) => byKey[k]).filter(Boolean).map((r) => (
+              <tr key={r.key}>
+                <td className="sc-label"><b>{r.label}</b>{r.note && <span className="muted">{r.note}</span>}</td>
+                {companies.map((co) => (
+                  <td key={co} data-label={co}>{sc.byCompany[co] ? r.cell(sc.byCompany[co], co) : '–'}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        ))}
       </table>
       {!sc.kpiReady && (
         <p className="note" style={{ marginTop: 12 }}>
@@ -526,7 +551,7 @@ export default async function SalesOverviewPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   // ต้องเข้าสู่ระบบก่อน (ตรวจ cookie + พนักงานยังอยู่ในตาราง employees และ is_active)
-  await requireEmployee();
+  const me = await requireEmployee();
   const params = await searchParams;
   const companyFilter = companyFromParams(params);
   const byCompany = <T,>(rows: T[], co: (r: T) => string) =>
@@ -534,6 +559,8 @@ export default async function SalesOverviewPage({
 
   let errorMessage: string | null = null;
   let targetError = null as string | null;
+  // แถบเตือนข้อมูลไม่อัปเดต / เข้าไม่ครบ (ตรวจไม่สำเร็จก็ไม่ขวางหน้า)
+  let healthIssues: HealthIssue[] = [];
   let months: string[] = [];
   let latestDate = '';
   let fromYM = '';
@@ -548,6 +575,8 @@ export default async function SalesOverviewPage({
   let targetMonths: string[] = [];
   let scorecard: Scorecard | null = null;
   let branch: { cur: BranchRow[]; prev: BranchRow[] } | null = null;
+  // สัดส่วนยอดขาย: ยอดราย สาขา × เซลล์ × Princ (Princ แยกตามรหัสสินค้า) ไว้เจาะดูว่าสาขา / เซลล์ไหนขายดี
+  let princDetail: BranchPrincRow[] | null = null;
 
   try {
     preloadTargets();
@@ -578,7 +607,7 @@ export default async function SalesOverviewPage({
     const branchRange = { from: `${fromYM}-01`, to: rangeEnd };
     const branchPrev = lastYear(branchRange);
 
-    const [cur, prev, targets, sc, bCur, bPrev] = await Promise.all([
+    const [cur, prev, targets, sc, bCur, bPrev, bp, health] = await Promise.all([
       Promise.all(fetchMonths.map((m) => getLG014Summary(monthToRange(m)))),
       Promise.all(fetchMonths.map((m) => getLG014Summary(prevRange(m)))),
       getTargets(fetchMonths[0] ?? fromYM, toYM).catch((err: unknown) => {
@@ -592,7 +621,11 @@ export default async function SalesOverviewPage({
       }),
       getBranchSales(branchRange.from, branchRange.to),
       getBranchSales(branchPrev.from, branchPrev.to),
+      getBranchPrinc(branchRange.from, branchRange.to).catch(() => null),
+      checkHealth(latestDate).catch(() => null),
     ]);
+    princDetail = bp;
+    healthIssues = health?.issues ?? [];
     scorecard = sc;
     if (bCur) branch = { cur: bCur, prev: bPrev ?? [] };
     fetchMonths.forEach((m, i) => {
@@ -677,6 +710,23 @@ export default async function SalesOverviewPage({
   });
 
   const princRows: CompanyPrincRow[] = curRows.map((r) => ({ company: r.Company, princ: r.Princ, giv: r.GIV, niv: r.NIV }));
+  // ชื่อเซลล์จากชีต (เดือนล่าสุดชนะ) — SDO ในชีตเป็นรหัสเขต จึงอาจไม่มีชื่อ
+  // สาขาของเซลล์ PDC / DC ตามชีต (key "เซลล์|princ" และ "เซลล์") — ใช้แทนสาขาที่ออกบิล เหมือนหน้ายอดขายรายทีม
+  const sellerNames: Record<string, string> = {};
+  const sellerChannels: Record<string, string> = {}; // ประเภทเซลล์ตามคอลัมน์ Channel ในชีต เช่น VAN / CREDIT / PRESALE
+  const sheetBranch: Record<string, string> = {};
+  for (const t of [...targetRows].sort((a, b) => a.ym.localeCompare(b.ym))) {
+    if (t.name) sellerNames[t.seller] = t.name;
+    if (t.channel) sellerChannels[t.seller] = t.channel.toUpperCase();
+    if (t.branch && normalizeCompany(t.company) !== 'SDO') {
+      sheetBranch[`${t.seller}|${t.principal}`] = t.branch;
+      sheetBranch[t.seller] = t.branch;
+    }
+  }
+  const princDetailRows = princDetail?.map((r) => ({
+    ...r,
+    branch: r.company === 'SDO' ? r.branch : sheetBranch[`${r.seller}|${r.principal}`] ?? sheetBranch[r.seller] ?? r.branch,
+  })) ?? null;
 
   return (
     <>
@@ -692,6 +742,7 @@ export default async function SalesOverviewPage({
         <main className="container">
           {/* ─── Filter (วางทับขอบล่างของ hero) ─── */}
           <RangeFilter months={months} fromYM={fromYM} toYM={toYM} company={companyFilter} />
+          <HealthBanner issues={healthIssues} showLink={me.role === 'admin'} />
 
           {errorMessage && <p className="empty">โหลดข้อมูลไม่สำเร็จ — ลองกดค้นหาอีกครั้ง</p>}
 
@@ -744,6 +795,9 @@ export default async function SalesOverviewPage({
                   <CompanyCards stats={companyStats} tg={tg} hasPrev={hasPrev} />
                 </div>
 
+                {/* ─── 3.5 สัดส่วน บริษัท → Principal → กดเจาะดูสาขา / เซลล์ ─── */}
+                <CompanyShare rows={princRows} companies={companies} detail={princDetailRows} sellerNames={sellerNames} sellerChannels={sellerChannels} />
+
                 {/* ─── 4. ยอดสะสม / ค่าเฉลี่ย 3 · 6 เดือน ─── */}
                 <div className="section">
                   <div className="section-title">
@@ -764,9 +818,6 @@ export default async function SalesOverviewPage({
                   </header>
                   <TrendLineChart points={trendPoints} />
                 </section>
-
-                {/* ─── 6. สัดส่วน บริษัท → Principal ─── */}
-                <CompanyShare rows={princRows} companies={companies} />
 
               </div>
             </>

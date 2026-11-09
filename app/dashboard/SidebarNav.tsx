@@ -33,14 +33,23 @@ function IconStore() {
   );
 }
 
-// เพิ่มเมนูใหม่ในอนาคต = เพิ่มรายการตรงนี้
+function IconPulse() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 12h4l3-7 4 14 3-7h4" />
+    </svg>
+  );
+}
+
+// เพิ่มเมนูใหม่ในอนาคต = เพิ่มรายการตรงนี้ (admin = เห็นเฉพาะ role admin)
 const ITEMS = [
   { href: '/dashboard', label: 'ภาพรวมยอดขาย', icon: <IconChart /> },
   { href: '/dashboard/team', label: 'ยอดขายรายทีม', icon: <IconTeam /> },
   { href: '/dashboard/stores', label: 'ยอดขายรายร้าน', icon: <IconStore /> },
+  { href: '/dashboard/status', label: 'สถานะระบบ', icon: <IconPulse />, admin: true },
 ];
 
-export default function SidebarNav() {
+export default function SidebarNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const qs = new URLSearchParams();
@@ -53,7 +62,7 @@ export default function SidebarNav() {
   return (
     <nav className="sb-group" aria-label="เมนูหลัก">
       <span className="sb-group-title">แดชบอร์ด</span>
-      {ITEMS.map((item) => {
+      {ITEMS.filter((item) => !item.admin || isAdmin).map((item) => {
         const active = pathname === item.href;
         return (
           <Link key={item.href} href={item.href + suffix} className={`sb-item${active ? ' active' : ''}`}

@@ -247,7 +247,7 @@ export default function LoginPage() {
                   maxLength={7}
                   required
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 tracking-wider
-                             focus:ring-2 focus:ring-[#3B9EE8] focus:border-transparent
+                             outline-none hover:border-[#3B9EE8]/50 focus:outline-none focus:ring-2 focus:ring-[#3B9EE8]/60 focus:border-[#3B9EE8]
                              text-gray-800 placeholder-gray-300 placeholder:tracking-normal transition"
                 />
               </div>
@@ -271,7 +271,7 @@ export default function LoginPage() {
                     maxLength={13}
                     required
                     className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-200 tracking-wider
-                               focus:ring-2 focus:ring-[#3B9EE8] focus:border-transparent
+                               outline-none hover:border-[#3B9EE8]/50 focus:outline-none focus:ring-2 focus:ring-[#3B9EE8]/60 focus:border-[#3B9EE8]
                                text-gray-800 placeholder-gray-300 placeholder:tracking-normal transition"
                   />
                   {/* ปุ่มดวงตา: กดเพื่อดู / ซ่อนเลขบัตรที่กรอก */}

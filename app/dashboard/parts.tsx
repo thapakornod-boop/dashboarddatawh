@@ -31,6 +31,19 @@ export function Hero({ crumb, title, subtitle, chips }: { crumb: string; title: 
   );
 }
 
+// แถบเตือนข้อมูลไม่อัปเดต / เข้าไม่ครบ (จาก lib/health) — ไม่มีปัญหาไม่แสดงอะไร
+export function HealthBanner({ issues, showLink }: { issues: { level: 'warn' | 'bad'; text: string }[]; showLink?: boolean }) {
+  if (!issues.length) return null;
+  const bad = issues.some((i) => i.level === 'bad');
+  return (
+    <div className={`health ${bad ? 'bad' : 'warn'}`} role="status">
+      <b>{bad ? '⛔ ข้อมูลอาจไม่ถูกต้อง' : '⚠ ตรวจพบความผิดปกติของข้อมูล'}</b>
+      <ul>{issues.map((i) => <li key={i.text}>{i.text}</li>)}</ul>
+      {showLink && <a href="/dashboard/status">ดูสถานะระบบ →</a>}
+    </div>
+  );
+}
+
 // ฟอร์มช่วงเดือน + บริษัท (ชื่อพารามิเตอร์ from / to / company เหมือนกันทุกหน้า)
 export function RangeFilter({ months, fromYM, toYM, company }: { months: string[]; fromYM: string; toYM: string; company: string }) {
   return (

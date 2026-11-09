@@ -49,9 +49,10 @@ as $$
   limit 10;
 $$;
 
--- 3) ร้านตัวอย่าง: ร้านยอด GIV สูงสุดของวันที่ระบุ (ตารางสรุป sales_store_daily) --------------------
+-- 3) ร้านตัวอย่าง: ร้านยอด GIV สูงสุดในช่วง [p_from, p_to) ตามเดือนที่เลือก (ตารางสรุป sales_store_daily) ----
 drop function if exists public.store_top(date, int);
-create or replace function public.store_top(p_d date, p_limit int default 8)
+drop function if exists public.store_top(date, date, int);
+create or replace function public.store_top(p_from date, p_to date, p_limit int default 8)
 returns table (rsmcode varchar, company_code varchar, cardcode varchar, card_name text, giv numeric)
 language sql
 stable
@@ -59,7 +60,7 @@ as $$
   with t as (
     select s.company_code, s.cardcode, sum(s.giv) as giv
     from public.sales_store_daily s
-    where s.d = p_d and s.seller not ilike '%GSM%' and s.cardcode <> '-'
+    where s.d >= p_from and s.d < p_to and s.seller not ilike '%GSM%' and s.cardcode <> '-'
     group by 1, 2
     order by 3 desc
     limit p_limit
@@ -109,8 +110,8 @@ revoke execute on function public.store_search(text) from public, anon, authenti
 grant execute on function public.store_search(text) to service_role;
 
 revoke execute on function public.store_suggest(text) from public, anon, authenticated;
-revoke execute on function public.store_top(date, int) from public, anon, authenticated;
+revoke execute on function public.store_top(date, date, int) from public, anon, authenticated;
 grant execute on function public.store_suggest(text) to service_role;
-grant execute on function public.store_top(date, int) to service_role;
+grant execute on function public.store_top(date, date, int) to service_role;
 
 notify pgrst, 'reload schema';

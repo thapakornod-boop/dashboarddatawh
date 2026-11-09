@@ -22,7 +22,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
           {/* useSearchParams ต้องอยู่ใน Suspense */}
           <Suspense fallback={<nav className="sb-group" aria-label="เมนูหลัก" />}>
-            <SidebarNav />
+            <SidebarNav isAdmin={me.role === 'admin'} />
           </Suspense>
           <div className="sb-spacer" />
           {/* การ์ดผู้ใช้ + ปุ่มออกจากระบบอยู่ข้างชื่อ (ถามยืนยันก่อนออก) */}

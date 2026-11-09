@@ -24,3 +24,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ช่องกรอก / ปุ่ม: ไม่ใช้กรอบดำของเบราว์เซอร์ตอนคลิก / hover — แต่ละหน้าใช้กรอบ / เงาสีแบรนด์แทน */
+input:focus, select:focus, textarea:focus { outline: none; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }

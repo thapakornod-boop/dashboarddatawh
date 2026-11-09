@@ -57,6 +57,7 @@ export default async function StoreSalesPage({
   // ยังไม่ได้ค้น → แสดงร้านตัวอย่าง (ยอดสูงสุดของวันล่าสุด) ให้ดูก่อน
   let examples: (StoreHit & { giv: number })[] = [];
   let isExample = false;
+  let topFromYM = '';
 
   try {
     [latestDate, months] = await Promise.all([getLatestDate(), getAvailableMonths()]);
@@ -65,7 +66,9 @@ export default async function StoreSalesPage({
     const rangeEnd = latestDate < monthEnd ? addDays(latestDate, 1) : monthEnd;
     givTo = addDays(rangeEnd, -1);
     if (!q) {
-      examples = await getTopStores(latestDate);
+      // ร้านยอดสูงสุดตามเดือนที่เลือก (ช่วงยาวใช้ 3 เดือนสุดท้าย ให้โหลดเร็ว)
+      topFromYM = months.filter((m) => m >= fromYM && m <= toYM).slice(-3)[0] ?? toYM;
+      examples = await getTopStores(`${topFromYM}-01`, rangeEnd);
       const first = examples[0];
       if (first) { q = first.rsmcode ?? first.cardcode; isExample = true; }
     }
@@ -156,7 +159,7 @@ export default async function StoreSalesPage({
 
           {examples.length > 0 && (
             <div className="store-examples">
-              <span className="field-label">ร้านยอดสูงสุดวันที่ {formatDate(latestDate)} · กดเพื่อดู</span>
+              <span className="field-label">ร้านยอด GIV สูงสุด {formatRange(topFromYM, toYM)}{topFromYM !== fromYM ? ' (3 เดือนล่าสุดของช่วง)' : ''} · กดเพื่อดู</span>
               <div className="store-chips">{examples.map((e, i) => chip(e, i, i >= 4))}</div>
               {/* มือถือ: ซ่อนร้านที่ 5 เป็นต้นไปไว้ใต้ "ดูเพิ่ม" (คอมโชว์ครบในแถวด้านบน) */}
               {examples.length > 4 && (

@@ -2,9 +2,9 @@
 
 // เข้าสู่ระบบ / ออกจากระบบ — ตรวจรหัสพนักงาน + เลขบัตรประชาชนกับตาราง public.employees ใน Supabase
 import { timingSafeEqual } from 'node:crypto';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { selectTable } from '@/app/lib/api';
+import { rpc, selectTable } from '@/app/lib/api';
 import { createToken, REMEMBER_DAYS, SESSION_COOKIE, SESSION_HOURS } from '@/app/lib/session';
 
 export type LoginResult = { ok: true; name: string } | { ok: false; error: string };
@@ -37,6 +37,39 @@ export async function login(input: { code: string; idCard: string; remember: boo
   if (!code || !idCard) return { ok: false, error: 'กรุณากรอกรหัสพนักงานและเลขบัตรประชาชน' };
   if (!CODE_RE.test(code)) return { ok: false, error: 'รหัสพนักงานต้องเป็นตัวอักษรอังกฤษ 3 ตัว ตามด้วยตัวเลข 4 ตัว เช่น SDO1234' };
   if (idCard.length !== 13) return { ok: false, error: 'เลขบัตรประชาชนต้องมี 13 หลัก' };
+  // ตรวจในฐานข้อมูล (supabase/security.sql): เทียบกับ hash ของเลขบัตร + นับครั้งที่ผิดต่อรหัส / ต่อ IP
+  const h = await headers();
+  const ip = (h.get('x-forwarded-for')?.split(',')[0] ?? h.get('x-real-ip') ?? '').trim().slice(0, 64);
+  let res: { status: 'ok' | 'bad' | 'locked' | 'inactive'; code: string | null; full_name: string | null } | undefined;
+  try {
+    [res] = await rpc<NonNullable<typeof res>>('employee_login', { p_code: code, p_id: idCard, p_ip: ip });
+  } catch (err) {
+    // ยังไม่ได้รัน security.sql → ตรวจแบบเดิม
+    if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return legacyLogin(code, idCard, input.remember);
+    return { ok: false, error: 'ระบบขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้' };
+  }
+  if (!res || res.status === 'bad') return { ok: false, error: 'รหัสพนักงานหรือเลขบัตรประชาชนไม่ถูกต้อง' };
+  if (res.status === 'locked') return { ok: false, error: 'กรอกผิดหลายครั้งเกินไป กรุณารอ 10 นาทีแล้วลองใหม่' };
+  if (res.status === 'inactive') return { ok: false, error: 'บัญชีนี้ถูกปิดสิทธิ์เข้าระบบ กรุณาติดต่อผู้ดูแลระบบ' };
+
+  await setSession(res.code!, input.remember);
+  return { ok: true, name: res.full_name ?? '' };
+}
+
+async function setSession(code: string, remember: boolean) {
+  // จดจำฉัน = cookie อยู่ 30 วัน / ไม่ติ๊ก = cookie หายเมื่อปิดเบราว์เซอร์ (และหมดอายุใน 8 ชม.)
+  const maxAge = remember ? REMEMBER_DAYS * 24 * 3600 : SESSION_HOURS * 3600;
+  (await cookies()).set(SESSION_COOKIE, createToken(code, maxAge), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    ...(remember ? { maxAge } : {}),
+  });
+}
+
+// แบบเดิม (ก่อนรัน security.sql): เทียบเลขบัตรตรง ๆ + นับครั้งที่ผิดในหน่วยความจำ
+async function legacyLogin(code: string, idCard: string, remember: boolean): Promise<LoginResult> {
   if (tooManyAttempts(code)) return { ok: false, error: 'กรอกผิดหลายครั้งเกินไป กรุณารอ 10 นาทีแล้วลองใหม่' };
 
   let emp: { code: string; id_card: string; full_name: string; is_active: boolean } | undefined;
@@ -54,16 +87,7 @@ export async function login(input: { code: string; idCard: string; remember: boo
   }
   if (!emp.is_active) return { ok: false, error: 'บัญชีนี้ถูกปิดสิทธิ์เข้าระบบ กรุณาติดต่อผู้ดูแลระบบ' };
   fails.delete(code);
-
-  // จดจำฉัน = cookie อยู่ 30 วัน / ไม่ติ๊ก = cookie หายเมื่อปิดเบราว์เซอร์ (และหมดอายุใน 8 ชม.)
-  const maxAge = input.remember ? REMEMBER_DAYS * 24 * 3600 : SESSION_HOURS * 3600;
-  (await cookies()).set(SESSION_COOKIE, createToken(emp.code, maxAge), {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    ...(input.remember ? { maxAge } : {}),
-  });
+  await setSession(emp.code, remember);
 
   // บันทึกเวลาเข้าระบบล่าสุด — ไม่สำเร็จก็ไม่ขวางการเข้าระบบ
   fetch(`${process.env.SUPABASE_URL}/rest/v1/employees?code=eq.${encodeURIComponent(emp.code)}`, {

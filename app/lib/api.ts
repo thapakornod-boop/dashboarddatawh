@@ -299,12 +299,12 @@ export async function suggestStores(q: string): Promise<StoreHit[]> {
   return rows.map((r) => ({ rsmcode: r.rsmcode, company: r.company_code, cardcode: r.cardcode, name: r.card_name ?? '' }));
 }
 
-// ร้านตัวอย่าง: ยอด GIV สูงสุดของวันที่ d — ยังไม่ได้รัน SQL → []
-export function getTopStores(d: string): Promise<(StoreHit & { giv: number })[]> {
-  return cached(`top|${d}`, async () => {
+// ร้านตัวอย่าง: ยอด GIV สูงสุดในช่วง [from, to) — ยังไม่ได้รัน SQL → []
+export function getTopStores(from: string, to: string): Promise<(StoreHit & { giv: number })[]> {
+  return cached(`top|${from}|${to}`, async () => {
     try {
       const rows = await rpc<{ rsmcode: string | null; company_code: string; cardcode: string; card_name: string | null; giv: number }>(
-        'store_top', { p_d: d, p_limit: 14 }
+        'store_top', { p_from: from, p_to: to, p_limit: 14 }
       );
       // ตัดบัญชีเคลม (เช่น "FNT-CLAIM FNT") — ไม่ใช่ร้านค้าจริง
       return rows.filter((r) => !/CLAIM/i.test(r.cardcode)).slice(0, 8).map((r) => ({ rsmcode: r.rsmcode, company: r.company_code, cardcode: r.cardcode, name: r.card_name ?? '', giv: Number(r.giv) }));
@@ -328,6 +328,29 @@ export function getStoreSales(keys: string[], from: string, to: string): Promise
       giv: Number(r.giv), niv: Number(r.niv), bills: Number(r.bills),
     }));
   });
+}
+
+// ── หน้าสถานะระบบ (supabase/security.sql) · ยังไม่ได้รัน SQL → null ──
+export type CronJob = {
+  jobname: string; schedule: string; active: boolean;
+  last_status: string | null; last_start: string | null; last_end: string | null; last_message: string | null;
+  last_ok: string | null; fails_24h: number;
+};
+export async function getCronStatus(): Promise<CronJob[] | null> {
+  try {
+    return (await rpc<CronJob>('cron_status', {})).map((j) => ({ ...j, fails_24h: Number(j.fails_24h) }));
+  } catch (err) {
+    if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+    throw err;
+  }
+}
+export async function getBackfillStatus(): Promise<{ name: string; next_month: string }[] | null> {
+  try {
+    return await rpc<{ name: string; next_month: string }>('backfill_status', {});
+  } catch (err) {
+    if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+    throw err;
+  }
 }
 
 // เดือนที่มีข้อมูลจริง (เก่า → ใหม่) ไว้ทำตัวเลือก filter

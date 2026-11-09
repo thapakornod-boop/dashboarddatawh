@@ -32,6 +32,8 @@ export function BranchSales({
 }) {
   const [co, setCo] = useState(ALL);
   const [princ, setPrinc] = useState(ALL);
+  const [metric, setMetric] = useState<'giv' | 'niv'>('giv');
+  const label = metric.toUpperCase();
 
   const inCo = (r: BranchRow) => companies.includes(r.company) && (!co || r.company === co);
   const princOptions = useMemo(
@@ -43,13 +45,13 @@ export function BranchSales({
 
   const rows = useMemo(() => {
     const m = new Map<string, { cur: number; prev: number }>();
-    for (const r of cur) if (keep(r)) { const x = m.get(r.branch) ?? { cur: 0, prev: 0 }; x.cur += r.giv; m.set(r.branch, x); }
-    for (const r of prev) if (keep(r)) { const x = m.get(r.branch) ?? { cur: 0, prev: 0 }; x.prev += r.giv; m.set(r.branch, x); }
+    for (const r of cur) if (keep(r)) { const x = m.get(r.branch) ?? { cur: 0, prev: 0 }; x.cur += r[metric]; m.set(r.branch, x); }
+    for (const r of prev) if (keep(r)) { const x = m.get(r.branch) ?? { cur: 0, prev: 0 }; x.prev += r[metric]; m.set(r.branch, x); }
     return [...m.entries()]
       .filter(([, v]) => Math.abs(v.cur) >= 1 || Math.abs(v.prev) >= 1)
       .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cur, prev, co, princ, companies]);
+  }, [cur, prev, co, princ, companies, metric]);
 
   const total = rows.reduce((s, [, v]) => ({ cur: s.cur + v.cur, prev: s.prev + v.prev }), { cur: 0, prev: 0 });
   const avg = (v: number) => (nMonths > 0 ? v / nMonths : 0);
@@ -58,8 +60,16 @@ export function BranchSales({
     <section className="card">
       <header className="card-head">
         <div>
-          <h3 className="card-title">GIV รายสาขา · {curLabel}</h3>
+          <h3 className="card-title">{label} รายสาขา · {curLabel}</h3>
           <p className="card-sub">เทียบช่วงเดียวกันปีก่อน ({prevLabel}) · Index = ปีนี้ ÷ ปีก่อน × 100 · เฉลี่ยต่อเดือน = ÷ {nMonths} เดือน</p>
+        </div>
+        <div className="seg" role="tablist" aria-label="ตัวชี้วัด">
+          {(['giv', 'niv'] as const).map((m) => (
+            <button key={m} type="button" role="tab" aria-selected={metric === m}
+              className={metric === m ? 'on' : ''} onClick={() => setMetric(m)}>
+              {m.toUpperCase()}
+            </button>
+          ))}
         </div>
       </header>
 
