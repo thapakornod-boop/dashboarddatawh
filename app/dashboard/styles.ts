@@ -72,6 +72,36 @@ export const DASHBOARD_CSS = `
           .sb-logout { margin-left: 0; }
           .sb-item { justify-content: center; padding: 12px; }
         }
+        /* โลโก้ในหัวเพจ / ปุ่มออกจากระบบในแถบล่าง: แสดงเฉพาะมือถือ (sidebar ย้ายไปเป็นแถบเมนูล่าง) */
+        .hero-brand, .sb-item.sb-out { display: none; }
+        /* มือถือ: เมนูเป็นแถบล่างค้างไว้ตลอด (เนื้อหาเต็มจอ) · โลโก้ย้ายไปหัวเพจ · ออกจากระบบใช้ปุ่มในหัวเพจ */
+        @media (max-width: 640px) {
+          .shell { display: block; }
+          .main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+          .sidebar {
+            position: fixed; top: auto; bottom: 0; left: 0; right: 0; height: auto; width: 100%; z-index: 50;
+            flex-direction: row; gap: 0; padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+            background: rgba(255,255,255,0.97); color: var(--text); border-top: 1px solid var(--border);
+            box-shadow: 0 -6px 20px rgba(15,27,51,0.08); backdrop-filter: blur(8px);
+          }
+          .sb-brand, .sb-spacer, .sb-user, .sb-group-title { display: none; }
+          .sb-group { flex-direction: row; justify-content: space-around; align-items: stretch; gap: 2px; width: 100%; }
+          .sb-item {
+            flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: flex-start; align-items: center; gap: 4px;
+            padding: 6px 2px; border-radius: 10px; color: var(--text-2); font-size: 11.5px; line-height: 1.25; text-align: center;
+          }
+          .sb-item:hover { background: var(--brand-50); color: var(--primary); }
+          .sb-item.active { background: transparent; color: var(--primary); font-weight: 600; box-shadow: none; }
+          .sb-item.active svg { filter: drop-shadow(0 2px 6px rgba(31,102,229,0.35)); }
+          .sb-label { display: block; overflow-wrap: anywhere; }
+          .sb-item.sb-out { display: flex; border: none; background: transparent; font-family: inherit; cursor: pointer; color: var(--error); }
+          .sb-item.sb-out:hover { background: #FFF1F0; color: var(--error); }
+          .hero-logout { display: none; }
+          .hero-brand { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+          .hero-brand img { width: 36px; height: 36px; border-radius: 9999px; box-shadow: 0 0 0 2px rgba(255,255,255,0.9); }
+          .hero-brand b { font: 600 14px var(--font-display); letter-spacing: 0.02em; }
+          .hero-brand span { display: block; font-size: 11px; color: rgba(255,255,255,0.75); }
+        }
 
         /* ── segmented / tabs (สิ่งที่กดได้ = สีแบรนด์) ── */
         .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--alt); border-radius: 8px; }

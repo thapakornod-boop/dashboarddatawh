@@ -22,7 +22,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
           {/* useSearchParams ต้องอยู่ใน Suspense */}
           <Suspense fallback={<nav className="sb-group" aria-label="เมนูหลัก" />}>
-            <SidebarNav isAdmin={me.role === 'admin'} />
+            <SidebarNav isAdmin={me.role === 'admin'} end={
+              // มือถือ: ปุ่มออกจากระบบอยู่ท้ายแถบเมนูล่าง (คอมใช้ปุ่มในการ์ดผู้ใช้ด้านล่าง sidebar)
+              <LogoutButton action={logout} className="sb-item sb-out"><IconLogout /><span className="sb-label">ออกจากระบบ</span></LogoutButton>
+            } />
           </Suspense>
           <div className="sb-spacer" />
           {/* การ์ดผู้ใช้ + ปุ่มออกจากระบบอยู่ข้างชื่อ (ถามยืนยันก่อนออก) */}

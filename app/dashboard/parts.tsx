@@ -1,4 +1,5 @@
 // ชิ้นส่วนที่ทุกหน้าใน /dashboard ใช้ร่วมกัน: หัวเพจสีแบรนด์ + ฟอร์มเลือกช่วงเดือน / บริษัท
+import Image from 'next/image';
 import { FilterForm, LogoutButton } from '@/app/components/Loading';
 import { logout } from '@/app/login/actions';
 import { COMPANY_ORDER, formatRange, formatThaiMonth } from '@/app/lib/period';
@@ -16,6 +17,11 @@ export function Hero({ crumb, title, subtitle, chips }: { crumb: string; title: 
     <header className="hero">
       <div className="hero-inner">
         <div>
+          {/* มือถือ: sidebar ย้ายไปแถบล่าง → โลโก้บริษัทมาอยู่บนหัวเพจแทน */}
+          <div className="hero-brand">
+            <Image src="/logo.png" alt="RSM Group" width={36} height={36} />
+            <span><b>RSM GROUP</b><span>Sales Dashboard</span></span>
+          </div>
           <div className="crumb">{crumb}</div>
           <h1>{title}</h1>
           <p>{subtitle}</p>

@@ -49,7 +49,8 @@ const ITEMS = [
   { href: '/dashboard/status', label: 'สถานะระบบ', icon: <IconPulse />, admin: true },
 ];
 
-export default function SidebarNav({ isAdmin = false }: { isAdmin?: boolean }) {
+// end = ต่อท้ายเมนู (เช่นปุ่มออกจากระบบที่แสดงเฉพาะแถบล่างบนมือถือ)
+export default function SidebarNav({ isAdmin = false, end }: { isAdmin?: boolean; end?: React.ReactNode }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const qs = new URLSearchParams();
@@ -71,6 +72,7 @@ export default function SidebarNav({ isAdmin = false }: { isAdmin?: boolean }) {
           </Link>
         );
       })}
+      {end}
     </nav>
   );
 }
