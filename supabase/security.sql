@@ -125,19 +125,4 @@ grant execute on function public.backfill_status() to service_role;
 
 notify pgrst, 'reload schema';
 
--- ─────────────────────────────────────────────────────────────────────────────
--- ขั้นสุดท้าย (รันแยก หลังเว็บใหม่ขึ้นแล้ว และเช็คว่าเข้าสู่ระบบได้):
--- ลบเลขบัตรตัวจริงออก เหลือแต่ hash
---   ⚠ ถ้าระบบนามบัตรดิจิทัลใช้ตาราง employees นี้ด้วยและยังตรวจจาก id_card ห้ามรันจนกว่าระบบนั้นจะเปลี่ยนมาใช้ hash
---
---   alter table public.employees alter column id_card drop not null;
---   update public.employees set id_card = null;
---   -- import ครั้งต่อไปยังส่ง id_card มาได้ trigger จะทำ hash ให้ แล้วล้างทิ้งอัตโนมัติด้วยบรรทัดนี้:
---   create or replace function public.employees_hash_id() returns trigger language plpgsql as $f$
---   begin
---     if new.id_card is not null then
---       new.id_hash := extensions.crypt(new.id_card, extensions.gen_salt('bf', 10));
---       new.id_card := null;
---     end if;
---     return new;
---   end $f$;
+-- ขั้นสุดท้าย: ลบเลขบัตรตัวจริงออก เหลือแต่ hash → supabase/drop_id_card.sql (รันหลังเช็คแล้วว่าเข้าสู่ระบบได้)
