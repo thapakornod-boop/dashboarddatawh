@@ -120,6 +120,9 @@ export default async function StoreSalesPage({
   const daysSince = lastBuy ? Math.round((Date.parse(latestDate) - Date.parse(lastBuy)) / 86_400_000) : null;
   const pct = (v: number) => (total.giv ? `${((v / total.giv) * 100).toFixed(1)}%` : '–');
   const storeName = selected ? nameOf(selected) : '';
+  // บิลรวมของบริษัท: นับจากยอดรายเดือน (บิลเดียวหลาย Princ ไม่นับซ้ำ) ถ้ามี
+  const coBills = (company: string, fallback: number) =>
+    monthly ? monthly.filter((r) => r.company === company).reduce((s, r) => s + r.bills, 0) : fallback;
   const chip = (e: StoreHit & { giv: number }, i: number, extra: boolean) => (
     <LoadingLink key={`${e.company}|${e.cardcode}`} scrollToId="store-profile"
       className={`store-chip${i === 0 ? ' active' : ''}${extra ? ' extra' : ''}`}
@@ -317,7 +320,7 @@ export default async function StoreSalesPage({
                   <table className="rtable store-table">
                     <thead>
                       <tr>
-                        <th>บริษัท / รหัสร้าน</th>
+                        <th>รหัสร้าน</th>
                         <th>Princ</th>
                         <th className="r">GIV</th>
                         <th className="r">NIV</th>
@@ -325,13 +328,22 @@ export default async function StoreSalesPage({
                         <th className="r">สัดส่วน</th>
                       </tr>
                     </thead>
+                    {/* แยกกลุ่มตามบริษัท: หัวกลุ่ม (ยอดรวมบริษัท) อยู่บนสุด แล้วตามด้วยรหัสร้าน × Princ ของบริษัทนั้น */}
                     {byCo.map(({ company, rows, ...t }) => (
-                      <tbody key={company}>
-                        {rows.map((r) => (
-                          <tr key={`${r.cardcode}|${r.principal}`}>
-                            <td data-label="บริษัท / รหัสร้าน" className="muted">
-                              <span className="dot" style={{ background: COMPANY_COLORS[company] }} />{company} <span className="code">{r.cardcode}</span>
-                            </td>
+                      <tbody key={company} className="st-co">
+                        <tr className="grp st-co-head" style={{ ['--co' as string]: COMPANY_COLORS[company] }}>
+                          <td colSpan={2}>
+                            <span className="st-co-name"><span className="dot" style={{ background: COMPANY_COLORS[company] }} />{company}</span>
+                            <span className="muted st-co-sub"> · {new Set(rows.map((r) => r.cardcode)).size} รหัสร้าน · {rows.length} Princ</span>
+                          </td>
+                          <td data-label="GIV" className="r strong">{fmtInt(t.giv)}</td>
+                          <td data-label="NIV" className="r">{fmtInt(t.niv)}</td>
+                          <td data-label="บิล" className="r">{fmtInt(coBills(company, t.bills))}</td>
+                          <td data-label="สัดส่วน" className="r strong">{pct(t.giv)}</td>
+                        </tr>
+                        {[...rows].sort((a, b) => b.giv - a.giv).map((r) => (
+                          <tr key={`${r.cardcode}|${r.principal}`} className="st-co-row">
+                            <td data-label="รหัสร้าน" className="muted"><span className="code">{r.cardcode}</span></td>
                             <td data-label="Princ" className="strong">{r.principal}</td>
                             <td data-label="GIV" className="r strong">{fmtInt(r.giv)}</td>
                             <td data-label="NIV" className="r">{fmtInt(r.niv)}</td>
@@ -339,15 +351,6 @@ export default async function StoreSalesPage({
                             <td data-label="สัดส่วน" className="r muted">{pct(r.giv)}</td>
                           </tr>
                         ))}
-                        {rows.length > 1 && (
-                          <tr className="grp grp-sup">
-                            <td colSpan={2}><b>รวม {company}</b></td>
-                            <td data-label="GIV" className="r strong">{fmtInt(t.giv)}</td>
-                            <td data-label="NIV" className="r">{fmtInt(t.niv)}</td>
-                            <td data-label="บิล" className="r">{fmtInt(t.bills)}</td>
-                            <td data-label="สัดส่วน" className="r">{pct(t.giv)}</td>
-                          </tr>
-                        )}
                       </tbody>
                     ))}
                     <tfoot>
@@ -355,7 +358,7 @@ export default async function StoreSalesPage({
                         <td colSpan={2}><b>รวมทั้งหมด</b></td>
                         <td data-label="GIV" className="r strong">{fmtInt(total.giv)}</td>
                         <td data-label="NIV" className="r strong">{fmtInt(total.niv)}</td>
-                        <td data-label="บิล" className="r strong">{fmtInt(total.bills)}</td>
+                        <td data-label="บิล" className="r strong">{fmtInt(bills)}</td>
                         <td data-label="สัดส่วน" className="r strong">100%</td>
                       </tr>
                     </tfoot>

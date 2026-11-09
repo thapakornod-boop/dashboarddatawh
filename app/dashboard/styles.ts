@@ -458,6 +458,18 @@ export const DASHBOARD_CSS = `
         .store-hit-codes { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13px; color: var(--text-2); }
         .store-tag { white-space: nowrap; }
         .store-table { font-size: 15px; }
+        /* หัวกลุ่มบริษัท (ยอดรวมบริษัท) อยู่บนรายการของบริษัทนั้น · แถบสีบริษัทด้านซ้าย */
+        .store-table .st-co-head td { background: #F6F9FF; border-top: 1px solid var(--border); font-weight: 600; }
+        .store-table .st-co-head td:first-child { box-shadow: inset 4px 0 0 var(--co); }
+        .store-table .st-co-name { font-size: 16px; }
+        .store-table .st-co-sub { font-weight: 400; font-size: 13px; }
+        .store-table .st-co-row td:first-child { padding-left: 34px; }
+        @container card (max-width: 800px) {
+          .store-table .st-co-head { border-left: 4px solid var(--co); background: #F6F9FF; margin-top: 14px; }
+          .store-table .st-co-head td { background: transparent; border: none; box-shadow: none !important; }
+          .store-table .st-co-row { margin-left: 10px; width: calc(100% - 10px); }
+          .store-table .st-co-row td:first-child { padding-left: 0; }
+        }
         .store-table tfoot td { font-weight: 700; }
         .shots-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(15,27,51,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
         .shots { background: var(--surface); border-radius: 14px; width: min(860px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; padding: 16px; gap: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
