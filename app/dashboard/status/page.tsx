@@ -54,7 +54,7 @@ export default async function StatusPage() {
       <main className="container">
         {health && (health.issues.length
           ? <HealthBanner issues={health.issues} />
-          : <div className="health ok" role="status"><b>✅ ข้อมูลปกติ</b> อัปเดตถึง {formatDate(health.latestDate)} · ยอด 7 วันล่าสุดของทุกบริษัทอยู่ในเกณฑ์ปกติ</div>)}
+          : <div className="health ok" role="status"><b>✅ ข้อมูลปกติ</b> อัปเดตถึง {formatDate(health.latestDate)} · ทุกบริษัทมีข้อมูลขายเข้าตามปกติ และรอบอัปเดตอัตโนมัติทำงานปกติ</div>)}
 
         {/* ── ความครบของข้อมูลรายบริษัท ── */}
         {health && (
@@ -62,24 +62,30 @@ export default async function StatusPage() {
             <header className="card-head">
               <div>
                 <h3 className="card-title">ความครบของข้อมูล (จำนวนบรรทัดขาย)</h3>
-                <p className="card-sub">7 วันล่าสุด เทียบค่าเฉลี่ยต่อสัปดาห์ของ 4 สัปดาห์ก่อนหน้า · ต่ำกว่า 60% = อาจเข้าไม่ครบ · ใช้จำนวนบรรทัดเพราะยอดเงินขึ้นลงตามรอบเดือน</p>
+                <p className="card-sub">
+                  เตือนเมื่อบริษัทไหนไม่มีข้อมูลขายเข้าเลย 2 วันติดกัน (ไม่นับวันนี้ / วันที่ 1–3 ของเดือน / หยุดยาว) ·
+                  ยอด 7 วันเทียบ 4 สัปดาห์ก่อนแสดงไว้ดูประกอบ — ช่วงปิดเดือน PDC / DC ต่ำกว่าปกติเป็นเรื่องปกติ
+                </p>
               </div>
               <RefreshButton />
             </header>
             <table className="rtable status-table">
               <thead>
-                <tr><th>บริษัท</th><th className="r">บรรทัดวันล่าสุด ({formatDate(health.latestDate)})</th><th className="r">บรรทัด 7 วันล่าสุด</th><th className="r">เฉลี่ย / สัปดาห์ (4 สัปดาห์ก่อน)</th><th className="r">เทียบ</th><th className="r">GIV 7 วันล่าสุด</th></tr>
+                <tr><th>บริษัท</th><th>สถานะ</th><th className="r">บรรทัดเมื่อวาน ({formatDate(health.checkDay)})</th><th className="r">บรรทัด 7 วันล่าสุด</th><th className="r">เฉลี่ย / สัปดาห์ (4 สัปดาห์ก่อน)</th><th className="r">เทียบ</th><th className="r">GIV 7 วันล่าสุด</th></tr>
               </thead>
               <tbody>
                 {health.weekly.map((w) => (
                   <tr key={w.company}>
                     <td className="strong">{w.company}</td>
-                    <td data-label="บรรทัดวันล่าสุด" className="r">{fmtInt(w.lastDay)}</td>
+                    <td data-label="สถานะ">
+                      {w.streak >= 2
+                        ? <span className="sc-chip down">ไม่มีข้อมูล {w.streak} วัน</span>
+                        : <span className="sc-chip up">ข้อมูลเข้าปกติ</span>}
+                    </td>
+                    <td data-label="บรรทัดเมื่อวาน" className="r">{fmtInt(w.lastDay)}</td>
                     <td data-label="บรรทัด 7 วันล่าสุด" className="r strong">{fmtInt(w.last7)}</td>
                     <td data-label="เฉลี่ย / สัปดาห์" className="r">{fmtInt(w.avgWeek)}</td>
-                    <td data-label="เทียบ" className="r">
-                      {w.ratio === null ? '–' : <span className={`sc-chip ${w.ratio >= 80 ? 'up' : w.ratio >= 60 ? 'mid' : 'down'}`}>{w.ratio.toFixed(0)}%</span>}
-                    </td>
+                    <td data-label="เทียบ" className="r muted">{w.ratio === null ? '–' : `${w.ratio.toFixed(0)}%`}</td>
                     <td data-label="GIV 7 วันล่าสุด" className="r muted">{fmtInt(w.giv7)}</td>
                   </tr>
                 ))}
