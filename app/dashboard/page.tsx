@@ -668,6 +668,10 @@ export default async function SalesOverviewPage({
                         p3: ymRange(scorecard.ranges.p3), p6: ymRange(scorecard.ranges.p6), storesP3: ymRange(scorecard.ranges.storesP3),
                       }}
                       typeStats={typeStats}
+                      baseFull={Object.fromEntries(companies.map((co) => {
+                        const b = sumGIVNIV((prevFullByYM.get(toYM) ?? []).filter((r) => normalizeCompany(r.Company) === co));
+                        return [co, { giv: b.GIV, niv: b.NIV }];
+                      }))}
                       maxRangeMonths={MAX_RANGE_MONTHS}
                     />
                   </div>

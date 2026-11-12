@@ -405,6 +405,7 @@ export const DASHBOARD_CSS = `
         /* % เทียบฐาน: ป้ายสี */
         .sc-chip { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .sc-chip.up { background: #F6FFED; color: #389E0D; }
+        .sc-good { color: #389E0D; }
         .sc-chip.down { background: #FFF1F0; color: #CF1322; }
         @container card (max-width: 800px) {
           .score tr.sc-group { border: none; background: transparent; padding: 10px 2px 0; margin-bottom: 6px; }
