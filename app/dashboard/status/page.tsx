@@ -1,7 +1,8 @@
 // สถานะระบบ (เฉพาะ admin): ความครบของข้อมูล / รอบอัปเดตอัตโนมัติ (pg_cron) / คำนวณย้อนหลัง
 // ไม่ต้องเข้าไปเช็คใน Supabase เอง · ข้อมูล cron มาจาก RPC cron_status (supabase/security.sql)
 import { redirect } from 'next/navigation';
-import { getBackfillStatus, getCronStatus, getLatestDate, getSellerAuto, type CronJob, type SellerAuto, type SellerUnmapped } from '@/app/lib/api';
+import { getBackfillStatus, getCronStatus, getLatestDate, getManualRefresh, getSellerAuto, type CronJob, type ManualRefresh, type SellerAuto, type SellerUnmapped } from '@/app/lib/api';
+import DataRefreshButton from '@/app/components/DataRefreshButton';
 import { requireEmployee } from '@/app/lib/session';
 import { checkHealth, type Health } from '@/app/lib/health';
 import { formatDate } from '@/app/lib/period';
@@ -19,6 +20,7 @@ const JOB_LABEL: Record<string, string> = {
   'kpi-backfill': 'คำนวณย้อนหลัง: ข้อมูลระดับร้าน',
   'branch-backfill': 'คำนวณย้อนหลัง: รายสาขา',
   'seller-auto-add': 'เพิ่มรหัสเซลล์ใหม่ (PDC / DC) อัตโนมัติ',
+  'manual-refresh': 'อัปเดตยอดขาย (กดจากหน้านี้)',
 };
 const BACKFILL_LABEL: Record<string, string> = { dashboard: 'ยอดรายเซลล์', kpi: 'ข้อมูลระดับร้าน', branch: 'รายสาขา / Princ' };
 
@@ -40,9 +42,12 @@ export default async function StatusPage() {
   let jobs: CronJob[] | null = null;
   let backfill: { name: string; next_month: string }[] | null = null;
   let sellerAuto: { recent: SellerAuto[]; pending: SellerUnmapped[] } | null = null;
+  let manual: ManualRefresh | null = null;
   try {
     const latest = await getLatestDate();
-    [health, jobs, backfill, sellerAuto] = await Promise.all([checkHealth(latest), getCronStatus(), getBackfillStatus(), getSellerAuto().catch(() => null)]);
+    [health, jobs, backfill, sellerAuto, manual] = await Promise.all([
+      checkHealth(latest), getCronStatus(), getBackfillStatus(), getSellerAuto().catch(() => null), getManualRefresh().catch(() => null),
+    ]);
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : 'เกิดข้อผิดพลาด';
   }
@@ -57,6 +62,16 @@ export default async function StatusPage() {
         {health && (health.issues.length
           ? <HealthBanner issues={health.issues} />
           : <div className="health ok" role="status"><b>✅ ข้อมูลปกติ</b> อัปเดตถึง {formatDate(health.latestDate)} · ทุกบริษัทมีข้อมูลขายเข้าตามปกติ และรอบอัปเดตอัตโนมัติทำงานปกติ</div>)}
+
+        {/* ── อัปเดตยอดขายทันที (ไม่ต้องรอรอบ 06:30 / 12:30 / 17:30) ── */}
+        <section className="card">
+          <h3 className="card-title">อัปเดตยอดขายตอนนี้</h3>
+          <p className="card-sub">
+            หลังบ้านโหลดยอดใหม่เข้า vw_lg014 แล้ว กดปุ่มนี้ให้ dashboard คำนวณใหม่ทันที (ต้นเดือนก่อน → วันนี้ · ยอดรายเซลล์ / ระดับร้าน / รายสาขา + เพิ่มรหัสเซลล์ใหม่)
+            · ใช้เวลาราว 1–3 นาที เสร็จแล้วหน้าเว็บอัปเดตเอง
+          </p>
+          <DataRefreshButton initial={manual} />
+        </section>
 
         {/* ── ความครบของข้อมูลรายบริษัท ── */}
         {health && (

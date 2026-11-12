@@ -445,6 +445,20 @@ export async function getSellerAuto(): Promise<{ recent: SellerAuto[]; pending: 
   }
 }
 
+// ── ปุ่ม "อัปเดตยอดขายตอนนี้" (supabase/manual_refresh.sql) · ยังไม่ได้รัน SQL → null ──
+export type ManualRefresh = { status: 'idle' | 'queued' | 'running' | 'done' | 'failed'; requested_at: string | null; started_at: string | null; finished_at: string | null; message: string | null };
+export async function getManualRefresh(): Promise<ManualRefresh | null> {
+  try {
+    return (await rpc<ManualRefresh>('manual_refresh_status', {}))[0] ?? null;
+  } catch (err) {
+    if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+    throw err;
+  }
+}
+export async function requestManualRefresh(): Promise<'queued' | 'busy'> {
+  return rpcScalar<'queued' | 'busy'>('request_refresh', {});
+}
+
 export async function getBackfillStatus(): Promise<{ name: string; next_month: string }[] | null> {
   try {
     return await rpc<{ name: string; next_month: string }>('backfill_status', {});

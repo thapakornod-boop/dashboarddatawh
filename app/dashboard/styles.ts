@@ -158,6 +158,8 @@ export const DASHBOARD_CSS = `
         .field select:disabled { background: var(--alt); color: var(--neutral); }
         .arrow { color: var(--neutral); padding-bottom: 8px; }
         .filters-hint { font-size: 12px; color: var(--neutral); margin-left: auto; padding-bottom: 10px; }
+        /* ปุ่มอัปเดตยอดขาย (หน้าสถานะระบบ) */
+        .data-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; }
         /* แถบ Export Excel (ร้านค้า / ร้านเครดิต) */
         .export-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin: 4px 0 16px; padding: 12px 14px; border: 1px dashed var(--brand-100); border-radius: 12px; background: var(--brand-50); }
         .export-card .export-bar { margin: 0; border: none; padding: 0; background: transparent; }
