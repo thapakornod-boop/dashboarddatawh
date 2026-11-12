@@ -41,7 +41,7 @@ export type PrincTarget = { company: string; branch: string; principal: string; 
 export type SellerTarget = { company: string; seller: string; principal: string; target: number };
 
 export default function CompanyShare({
-  rows, companies, detail, sellerNames = {}, sellerChannels = {}, coStats = {}, nMonths = 1, hasPrev = false, prevLabel = '',
+  rows, companies, detail, sellerNames = {}, sellerChannels = {}, nMonths = 1, hasPrev = false,
   targets = [], prevDetail = [], baseLabel = '', sellerTargets = [], timeGonePct = 0,
 }: {
   rows: CompanyPrincRow[]; companies: string[]; detail?: BranchPrincRow[] | null;
@@ -172,24 +172,6 @@ export default function CompanyShare({
   }));
 
   const label = metric.toUpperCase();
-  // ตัวเลขประกอบในการ์ดบริษัท: Target (GIV) · ปีก่อน · ยอดขายเฉลี่ย = ยอด ÷ จำนวนเดือน ÷ จำนวนเซลล์
-  const statOf = (cos: string[], value: number) => {
-    const target = cos.reduce((s, c) => s + (coStats[c]?.target ?? 0), 0);
-    const prev = cos.reduce((s, c) => s + (coStats[c]?.prev[metric] ?? 0), 0);
-    const sellers = cos.reduce((s, c) => s + (coStats[c]?.sellers ?? 0), 0);
-    return { target, prev, sellers, avg: sellers && nMonths ? value / nMonths / sellers : null };
-  };
-  const tileStats = (cos: string[], value: number) => {
-    const s = statOf(cos, value);
-    const yPct = hasPrev && s.prev ? (value / s.prev) * 100 : null;
-    return (
-      <span className="tile-stats">
-        {metric === 'giv' && <span><i>Target</i><b>{s.target ? fmtShort(s.target) : '–'}</b><em>{s.target ? `${((value / s.target) * 100).toFixed(1)}%` : ''}</em></span>}
-        <span title={baseLabel || prevLabel}><i>Base</i><b>{hasPrev ? fmtShort(s.prev) : '–'}</b><em className={yPct == null ? '' : yPct >= 100 ? 'up' : 'down'}>{yPct == null ? '' : `${yPct.toFixed(1)}%`}</em></span>
-        <span title={`${label} ÷ ${nMonths} เดือน ÷ ${s.sellers} เซลล์`}><i>ยอดขายเฉลี่ย</i><b>{s.avg == null ? '–' : fmtShort(s.avg)}</b><em>คน/ด.</em></span>
-      </span>
-    );
-  };
   const barColor = sel === ALL ? '#1F66E5' : COMPANY_COLORS[sel];
   const pctOf = (v: number, base: number) => (base ? `${((v / base) * 100).toFixed(1)}%` : '–');
 
@@ -198,7 +180,7 @@ export default function CompanyShare({
       <header className="card-head">
         <div>
           <h3 className="card-title">สัดส่วนยอดขาย</h3>
-          <p className="card-sub">เลือกบริษัท → กด Principal เพื่อดูว่าสาขาไหน / เซลล์คนไหนขายดีที่สุด · ยอดขายเฉลี่ย = ยอด ÷ {nMonths} เดือน ÷ จำนวนเซลล์</p>
+          <p className="card-sub">เลือกบริษัท → กด Principal เพื่อดูว่าสาขาไหน / เซลล์คนไหนขายดีที่สุด</p>
         </div>
         <div className="seg" role="tablist" aria-label="ตัวชี้วัด">
           {(['giv', 'niv'] as Metric[]).map((m) => (
@@ -240,18 +222,16 @@ export default function CompanyShare({
         <div className="share-tiles">
           <button type="button" className={`tile ${sel === ALL ? 'on' : ''}`} onClick={() => pickCompany(ALL)} aria-pressed={sel === ALL}>
             <span className="tile-name">ทั้งหมด</span>
-            <span className="tile-val">{fmtShort(total)}</span>
-            <span className="tile-meta">100% · {rows.length} เซลล์</span>
-            {tileStats(companies, total)}
+            <span className="tile-val">{fmtInt(total)}</span>
+            <span className="tile-meta">บาท · 100%</span>
           </button>
           {slices.map((s) => (
             <button key={s.company} type="button" className={`tile ${sel === s.company ? 'on' : ''}`}
               onClick={() => pickCompany(s.company)} aria-pressed={sel === s.company}>
               <span className="tile-name"><span className="dot" style={{ background: COMPANY_COLORS[s.company] }} />{s.company}</span>
-              <span className="tile-val">{fmtShort(s.value)}</span>
-              <span className="tile-meta">{s.pct.toFixed(1)}% · {s.sellers} เซลล์</span>
+              <span className="tile-val">{fmtInt(s.value)}</span>
+              <span className="tile-meta">บาท · {s.pct.toFixed(1)}%</span>
               <span className="tile-share"><span style={{ width: `${s.pct}%`, background: COMPANY_COLORS[s.company] }} /></span>
-              {tileStats([s.company], s.value)}
             </button>
           ))}
         </div>

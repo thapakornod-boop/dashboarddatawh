@@ -166,7 +166,7 @@ function PaceStrip({ tg, giv, target, base }: { tg: TimeGone; giv: number; targe
         <span className="kpi-top"><span className="kpi-ic"><IconTrend /></span><span className="eyebrow">GIV เทียบ Base ปีก่อน</span></span>
         <div className="kpi-pair">
           <span><small>ยอดทำได้ (MTD)</small><b>{fmtInt(giv)}</b></span>
-          <span><small>Base ปีก่อนทั้งเดือน</small><b className="kpi-goal">{base.hasPrev ? fmtInt(base.full.GIV) : '–'}</b></span>
+          <span><small>Base</small><b className="kpi-goal">{base.hasPrev ? fmtInt(base.full.GIV) : '–'}</b></span>
         </div>
         <span className="kpi-pct">
           <b style={{ color: paceColor(vsBase, tg.pct) }}>{fmtPct(vsBase)}</b>

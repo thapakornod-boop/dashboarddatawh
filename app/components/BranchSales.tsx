@@ -159,7 +159,7 @@ export function BranchSales({
               <tr>
                 <th>สาขา</th>
                 <th className="r">Target</th>
-                <th className="r" title={baseLabel}>Base<br /><small className="muted">ปีก่อนทั้งเดือน</small></th>
+                <th className="r" title={baseLabel}>Base</th>
                 <th className="r">MTD (GIV)</th>
                 <th className="r">MTD เทียบ Target</th>
                 <th className="r">MTD เทียบ Base</th>
