@@ -158,6 +158,10 @@ export const DASHBOARD_CSS = `
         .field select:disabled { background: var(--alt); color: var(--neutral); }
         .arrow { color: var(--neutral); padding-bottom: 8px; }
         .filters-hint { font-size: 12px; color: var(--neutral); margin-left: auto; padding-bottom: 10px; }
+        /* ปุ่มลัด 3 / 6 / 12 เดือนย้อนหลัง — แถวเต็มความกว้างใต้ตัวกรอง */
+        .range-presets { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-top: 12px; border-top: 1px solid var(--border, #EEF0F4); }
+        .range-presets .seg button { font-size: 14px; padding: 7px 16px; }
+        .range-presets-note { font-size: 12px; color: var(--neutral); }
         .btn { height: 38px; padding: 0 16px; border-radius: 6px; font: 600 14px var(--font-body); cursor: pointer; transition: transform .2s, box-shadow .2s, background .2s; }
         .btn:hover { transform: translateY(-1px); }
         .btn-primary { background: var(--primary); color: #FAFAFA; border: 1px solid var(--primary); }
@@ -916,6 +920,7 @@ export const DASHBOARD_CSS = `
           .filters .field-label { font-size: 12px; }
           .filters .btn { align-self: end; }
           .filters-hint { display: none; }
+          .range-presets { grid-column: 1 / -1; }
           .card { padding: 14px; }
         }
 

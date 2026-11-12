@@ -1,6 +1,7 @@
 // ชิ้นส่วนที่ทุกหน้าใน /dashboard ใช้ร่วมกัน: หัวเพจสีแบรนด์ + ฟอร์มเลือกช่วงเดือน / บริษัท
 import Image from 'next/image';
 import { FilterForm, LogoutButton } from '@/app/components/Loading';
+import { RangePresets } from '@/app/components/RangePresets';
 import { logout } from '@/app/login/actions';
 import { COMPANY_ORDER, formatRange, formatThaiMonth } from '@/app/lib/period';
 
@@ -77,6 +78,7 @@ export function RangeFilter({ months, fromYM, toYM, company }: { months: string[
         </label>
         <button type="submit" className="btn btn-primary">ค้นหา</button>
         {months.length > 0 && <span className="filters-hint">มีข้อมูล {formatRange(months[0], months[months.length - 1])}</span>}
+        <RangePresets formId="filter-form" months={months} fromYM={fromYM} toYM={toYM} />
       </FilterForm>
     </div>
   );
