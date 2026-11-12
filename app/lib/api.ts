@@ -426,6 +426,25 @@ export async function getCronStatus(): Promise<CronJob[] | null> {
     throw err;
   }
 }
+// ── เซลล์ใหม่ที่เพิ่มเข้า seller_principal อัตโนมัติ (supabase/seller_auto.sql) · ยังไม่ได้รัน SQL → null ──
+export type SellerAuto = { added_at: string; company_code: string; seller: string; principals: string; branch: string | null; giv: number; first_d: string | null; last_d: string | null };
+export type SellerUnmapped = { company_code: string; seller: string; branch: string | null; giv: number; first_d: string; last_d: string; principals: string | null; can_add: boolean };
+export async function getSellerAuto(): Promise<{ recent: SellerAuto[]; pending: SellerUnmapped[] } | null> {
+  try {
+    const [recent, pending] = await Promise.all([
+      rpc<SellerAuto>('seller_auto_recent', { p_limit: 30 }),
+      rpc<SellerUnmapped>('seller_unmapped', { p_days: 45 }),
+    ]);
+    return {
+      recent: recent.map((r) => ({ ...r, giv: Number(r.giv) })),
+      pending: pending.map((r) => ({ ...r, giv: Number(r.giv) })),
+    };
+  } catch (err) {
+    if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+    throw err;
+  }
+}
+
 export async function getBackfillStatus(): Promise<{ name: string; next_month: string }[] | null> {
   try {
     return await rpc<{ name: string; next_month: string }>('backfill_status', {});

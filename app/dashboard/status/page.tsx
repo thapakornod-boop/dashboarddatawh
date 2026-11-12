@@ -1,7 +1,7 @@
 // สถานะระบบ (เฉพาะ admin): ความครบของข้อมูล / รอบอัปเดตอัตโนมัติ (pg_cron) / คำนวณย้อนหลัง
 // ไม่ต้องเข้าไปเช็คใน Supabase เอง · ข้อมูล cron มาจาก RPC cron_status (supabase/security.sql)
 import { redirect } from 'next/navigation';
-import { getBackfillStatus, getCronStatus, getLatestDate, type CronJob } from '@/app/lib/api';
+import { getBackfillStatus, getCronStatus, getLatestDate, getSellerAuto, type CronJob, type SellerAuto, type SellerUnmapped } from '@/app/lib/api';
 import { requireEmployee } from '@/app/lib/session';
 import { checkHealth, type Health } from '@/app/lib/health';
 import { formatDate } from '@/app/lib/period';
@@ -18,6 +18,7 @@ const JOB_LABEL: Record<string, string> = {
   'dashboard-backfill': 'คำนวณย้อนหลัง: ยอดรายเซลล์',
   'kpi-backfill': 'คำนวณย้อนหลัง: ข้อมูลระดับร้าน',
   'branch-backfill': 'คำนวณย้อนหลัง: รายสาขา',
+  'seller-auto-add': 'เพิ่มรหัสเซลล์ใหม่ (PDC / DC) อัตโนมัติ',
 };
 const BACKFILL_LABEL: Record<string, string> = { dashboard: 'ยอดรายเซลล์', kpi: 'ข้อมูลระดับร้าน', branch: 'รายสาขา / Princ' };
 
@@ -38,9 +39,10 @@ export default async function StatusPage() {
   let health: Health | null = null;
   let jobs: CronJob[] | null = null;
   let backfill: { name: string; next_month: string }[] | null = null;
+  let sellerAuto: { recent: SellerAuto[]; pending: SellerUnmapped[] } | null = null;
   try {
     const latest = await getLatestDate();
-    [health, jobs, backfill] = await Promise.all([checkHealth(latest), getCronStatus(), getBackfillStatus()]);
+    [health, jobs, backfill, sellerAuto] = await Promise.all([checkHealth(latest), getCronStatus(), getBackfillStatus(), getSellerAuto().catch(() => null)]);
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : 'เกิดข้อผิดพลาด';
   }
@@ -130,6 +132,64 @@ export default async function StatusPage() {
                 ))}
               </tbody>
             </table>
+          )}
+        </section>
+
+        {/* ── รหัสเซลล์ใหม่ (PDC / DC): เพิ่มอัตโนมัติ + ที่ยังเพิ่มเองไม่ได้ ── */}
+        <section className="card">
+          <header className="card-head">
+            <div>
+              <h3 className="card-title">รหัสเซลล์ใหม่ (PDC / DC)</h3>
+              <p className="card-sub">
+                PDC / DC นับยอดเฉพาะเซลล์ที่อยู่ในตาราง seller_principal · ระบบเพิ่มรหัสใหม่ให้เองทุกรอบอัปเดต (06:45 / 12:45 / 17:45)
+                เมื่อมียอดใน 45 วัน ≥ 1,000 บาท · Princ ดูจากหัวรหัสสินค้าที่ขาย · ไม่นับรหัสระบบ ADMIN / ADS / GSM / -No Sales Employee-
+              </p>
+            </div>
+          </header>
+          {!sellerAuto ? (
+            <p className="empty">รอข้อมูล — รัน supabase/seller_auto.sql ใน Supabase ก่อน</p>
+          ) : (
+            <>
+              <h4 className="cg-title">เพิ่มอัตโนมัติล่าสุด</h4>
+              {sellerAuto.recent.length === 0 ? <p className="muted">ยังไม่มีรหัสใหม่ที่ระบบเพิ่มให้</p> : (
+                <table className="rtable status-table">
+                  <thead><tr><th>เพิ่มเมื่อ</th><th>บริษัท</th><th>เซลล์</th><th>สาขา</th><th>Princ</th><th className="r">GIV ช่วงที่ตรวจ</th><th>ขายครั้งแรก – ล่าสุด</th></tr></thead>
+                  <tbody>
+                    {sellerAuto.recent.map((r) => (
+                      <tr key={`${r.company_code}|${r.seller}|${r.added_at}`}>
+                        <td>{th(r.added_at)}</td>
+                        <td data-label="บริษัท" className="strong">{r.company_code}</td>
+                        <td data-label="เซลล์"><span className="code">{r.seller}</span></td>
+                        <td data-label="สาขา">{r.branch ?? '–'}</td>
+                        <td data-label="Princ">{r.principals}</td>
+                        <td data-label="GIV" className="r">{fmtInt(r.giv)}</td>
+                        <td data-label="ขายครั้งแรก – ล่าสุด" className="muted">{r.first_d ? formatDate(r.first_d) : '–'} – {r.last_d ? formatDate(r.last_d) : '–'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {sellerAuto.pending.length > 0 && (
+                <>
+                  <h4 className="cg-title">ยังไม่ได้เพิ่ม (45 วันล่าสุด) — ยอดน้อย / ติดลบ หรือหา Princ ไม่ได้ ถ้าเป็นเซลล์จริงให้เพิ่มเอง</h4>
+                  <table className="rtable status-table">
+                    <thead><tr><th>บริษัท</th><th>เซลล์</th><th>สาขา</th><th>Princ ที่เดาได้</th><th className="r">GIV 45 วัน</th><th>ขายล่าสุด</th></tr></thead>
+                    <tbody>
+                      {sellerAuto.pending.map((r) => (
+                        <tr key={`${r.company_code}|${r.seller}`}>
+                          <td className="strong">{r.company_code}</td>
+                          <td data-label="เซลล์"><span className="code">{r.seller}</span></td>
+                          <td data-label="สาขา">{r.branch ?? '–'}</td>
+                          <td data-label="Princ">{r.principals ?? '–'}</td>
+                          <td data-label="GIV 45 วัน" className="r">{fmtInt(r.giv)}</td>
+                          <td data-label="ขายล่าสุด" className="muted">{formatDate(r.last_d)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </>
           )}
         </section>
 
