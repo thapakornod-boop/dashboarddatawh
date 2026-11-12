@@ -14,6 +14,7 @@ import StoreSearch from '@/app/components/StoreSearch';
 import LoadingLink from '@/app/components/LoadingLink';
 import StoreTrend, { type TrendMonth } from '@/app/components/StoreTrend';
 import StoreFigures from '@/app/components/StoreFigures';
+import StoreExport from '@/app/components/StoreExport';
 import { Hero, RangeFilter } from '../parts';
 
 type Group = { key: string; rsmcode: string | null; stores: StoreHit[] };
@@ -206,6 +207,21 @@ export default async function StoreSalesPage({
             </>
           )}
         </section>
+
+        {/* ── Export Excel: ตาม filter (ร้านที่เลือก) / ภาพรวม (ทุกร้านในช่วง) ── */}
+        {!errorMessage && fromYM && (
+          <StoreExport
+            store={selected && sales.length ? {
+              name: storeName, rsmcode: selected.rsmcode,
+              codes: selected.stores.filter((s) => companies.includes(s.company)).map((s) => ({ company: s.company, cardcode: s.cardcode })),
+              rangeLabel, lastBuy, sales, monthly: monthly ?? [], months: rangeMonths, prevGiv: monthlyPrev ? prevTotal : null,
+            } : null}
+            company={companyFilter === 'all' ? 'ทั้งหมด (SDO / PDC / DC)' : companyFilter}
+            rangeText={`${rangeLabel} (${formatDate(`${fromYM}-01`)} – ${formatDate(givTo)})`}
+            overviewHref={`/dashboard/stores/export?${new URLSearchParams(keep).toString()}`}
+            fileTag={`${fromYM}${toYM !== fromYM ? `_${toYM}` : ''}`}
+          />
+        )}
 
         {selected && (
           <>

@@ -26,9 +26,10 @@ import { requireEmployee } from '@/app/lib/session';
 import CompanyShare, { CompanyPrincRow, type SellerTarget } from '@/app/components/CompanyShare';
 import {
   COMPANY_ORDER, companyFromParams, formatDate, formatRange, formatThaiMonth, monthAbbr,
-  normalizeCompany, rangeFromParams, shiftYM,
+  normalizeCompany, rangeFromParams, shiftYM, showBeFor,
 } from '@/app/lib/period';
 import { HealthBanner, Hero, RangeFilter } from './parts';
+import SectionNav from '@/app/components/SectionNav';
 import { checkHealth, type HealthIssue } from '@/app/lib/health';
 
 type TrendPoint = { month: string; GIV: number; NIV: number };
@@ -213,9 +214,9 @@ function VsRow({ label, sub, cur, base, tgPct, missing }: {
 
 // การ์ด GIV / NIV: ยอดตอนนี้ตัวใหญ่ แล้ว "เทียบ" กับฐานทีละตัว เห็นตัวเลขสองฝั่งชัด ๆ
 // Target / BE ในชีตตั้งเป็นยอด GIV จึงมีเฉพาะการ์ด GIV
-function MetricCard({ label, sub, cur, base, goal, tg, note }: {
+function MetricCard({ label, sub, cur, base, goal, tg, note, showBe = true }: {
   label: 'GIV' | 'NIV'; sub: string; cur: number; base: BaseStat;
-  goal?: { target: number; be: number }; tg: TimeGone; note?: string | null;
+  goal?: { target: number; be: number }; tg: TimeGone; note?: string | null; showBe?: boolean;
 }) {
   return (
     <section className="card metric">
@@ -233,7 +234,7 @@ function MetricCard({ label, sub, cur, base, goal, tg, note }: {
         {goal && (
           <>
             <VsRow label="Target" sub="ทั้งเดือน" cur={cur} base={goal.target} tgPct={tg.pct} />
-            <VsRow label="BE" sub="คาดการณ์ทั้งเดือน" cur={cur} base={goal.be} tgPct={tg.pct} />
+            {showBe && <VsRow label="BE" sub="คาดการณ์ทั้งเดือน" cur={cur} base={goal.be} tgPct={tg.pct} />}
           </>
         )}
         <VsRow label="Base" sub={base.fullLabel}
@@ -241,7 +242,7 @@ function MetricCard({ label, sub, cur, base, goal, tg, note }: {
       </div>
       <p className="vs-foot">
         <b>Time gone {tg.pct.toFixed(1)}%</b> · % = MTD ÷ ยอดฐาน · Base = ยอดเดือนเดียวกันของปีก่อนเต็มเดือน · เขียวเมื่อ % ถึง Time gone
-        {goal && goal.target && goal.be ? ` · BE เทียบ Target ${fmtPct(pctOf(goal.be, goal.target))}` : ''}
+        {showBe && goal && goal.target && goal.be ? ` · BE เทียบ Target ${fmtPct(pctOf(goal.be, goal.target))}` : ''}
       </p>
       {note && <div className="note">{note}</div>}
     </section>
@@ -481,6 +482,8 @@ export default async function SalesOverviewPage({
   const tg = timeGone(rangeMonths);
 
   const rangeLabel     = fromYM ? formatRange(fromYM, toYM) : '';
+  // BE แสดงเฉพาะตอนเลือกเดือนปัจจุบันเดือนเดียว (เดือนย้อนหลัง / หลายเดือน ซ่อนทุกจุด)
+  const showBe = showBeFor(fromYM, toYM, latestDate);
   // ช่วงที่รวมเดือนปัจจุบัน (ยังไม่จบเดือน) ให้บอกวันที่ตัดด้วย เช่น "ต.ค. 2025 (ถึง 30/10/2025)"
   const prevLabelOf = (ms: string[]) => !ms.length ? '' :
     formatRange(shiftYM(ms[0], 1), shiftYM(ms[ms.length - 1], 1)) +
@@ -612,25 +615,34 @@ export default async function SalesOverviewPage({
 
           {!errorMessage && (
             <>
-              <div className="section" style={{ gap: 24 }}>
+              {/* มือถือ / แท็บเล็ต: แถบลัดไปหัวข้อ (ค้างด้านบนตอนเลื่อน) */}
+              <SectionNav items={[
+                { id: 'sec-summary', label: 'ภาพรวม' },
+                { id: 'sec-company', label: 'แยกตามบริษัท' },
+                { id: 'sec-share', label: 'สัดส่วนยอดขาย' },
+                { id: 'sec-branch', label: 'รายสาขา' },
+                ...(scorecard ? [{ id: 'sec-scorecard', label: 'Scorecard' }] : []),
+                { id: 'sec-trend', label: 'แนวโน้ม' },
+              ]} />
+              <div className="section sec-anchor" id="sec-summary" style={{ gap: 24 }}>
                 {/* ─── 1. Target → Base → Time gone ─── */}
                 <PaceStrip tg={tg} giv={grandCurrent.GIV} target={grandTarget.target} base={baseStat} />
 
                 {/* ─── 2. GIV / NIV เทียบ Target / BE / Base ─── */}
                 <div className="grid-2">
                   <MetricCard label="GIV" sub="ยอดก่อนหักส่วนลด" cur={grandCurrent.GIV} base={baseStat}
-                    goal={{ target: grandTarget.target, be: grandTarget.be }} tg={tg} note={targetNote} />
+                    goal={{ target: grandTarget.target, be: grandTarget.be }} tg={tg} note={targetNote} showBe={showBe} />
                   <MetricCard label="NIV" sub="ยอดสุทธิ" cur={grandCurrent.NIV} base={baseStat} tg={tg} />
                 </div>
 
                 {/* ─── 3. รายบริษัท ─── */}
-                <div className="section">
+                <div className="section sec-anchor" id="sec-company">
                   <div className="section-title"><h2>ยอดขายแยกตามบริษัท</h2><span>{rangeLabel} · vs Target · vs Base {baseStat.fullLabel}</span></div>
                   <CompanyCards stats={companyStats} tg={tg} hasPrev={hasPrev} baseLabel={baseStat.fullLabel} baseOf={(co) => baseFullOf(co).GIV} />
                 </div>
 
                 {/* ─── 4. สัดส่วน บริษัท → Principal → กดเจาะดูสาขา / เซลล์ ─── */}
-                <CompanyShare rows={princRows} companies={companies} detail={princDetailRows} sellerNames={sellerNames} sellerChannels={sellerChannels}
+                <CompanyShare id="sec-share" rows={princRows} companies={companies} detail={princDetailRows} sellerNames={sellerNames} sellerChannels={sellerChannels}
                   coStats={Object.fromEntries(companyStats.map((c) => {
                     const b = baseFullOf(c.company);
                     return [c.company, { target: c.target, prev: { giv: b.GIV, niv: b.NIV }, sellers: c.sellers }];
@@ -640,11 +652,11 @@ export default async function SalesOverviewPage({
                   sellerTargets={sellerTargets} timeGonePct={tg.pct} />
 
                 {/* ─── 5. ยอดขายรายสาขา ─── */}
-                <div className="section">
+                <div className="section sec-anchor" id="sec-branch">
                   <div className="section-title"><h2>ยอดขายรายสาขา</h2><span>{rangeLabel} · Time gone {tg.pct.toFixed(1)}%</span></div>
                   {princDetailRows ? (
                     <BranchSales cur={princDetailRows} prev={princDetailPrevRows} base={princDetailBaseRows} baseLabel={baseStat.fullLabel} targets={branchTargets} companies={companies}
-                      curLabel={rangeLabel} prevLabel={prevRangeLabel} nMonths={rangeMonths.length} timeGonePct={tg.pct} />
+                      curLabel={rangeLabel} prevLabel={prevRangeLabel} nMonths={rangeMonths.length} timeGonePct={tg.pct} showBe={showBe} />
                   ) : (
                     <p className="empty">รอข้อมูลรายสาขา — รัน supabase/princ_store.sql ใน Supabase ก่อน</p>
                   )}
@@ -652,7 +664,7 @@ export default async function SalesOverviewPage({
 
                 {/* ─── 6. Scorecard รายบริษัท ─── */}
                 {scorecard && (
-                  <div className="section">
+                  <div className="section sec-anchor" id="sec-scorecard">
                     <div className="section-title"><h2>Scorecard รายบริษัท</h2><span>SDO / PDC / DC · ตามนิยาม KPI ฝ่ายขาย</span></div>
                     <ScorecardView
                       sc={scorecard}
@@ -689,7 +701,7 @@ export default async function SalesOverviewPage({
                 )}
 
                 {/* ─── 7. แนวโน้ม ─── */}
-                <section className="card">
+                <section className="card sec-anchor" id="sec-trend">
                   <header className="card-head">
                     <div>
                       <h3 className="card-title">แนวโน้มยอดขายรายเดือน</h3>

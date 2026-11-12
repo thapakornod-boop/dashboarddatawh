@@ -6,7 +6,7 @@ import { requireEmployee } from '@/app/lib/session';
 import { getTargets } from '@/app/lib/targets';
 import { timeGone } from '@/app/lib/workdays';
 import {
-  COMPANY_ORDER, buildBranchRows, companyFromParams, formatDate, formatRange, normalizeCompany, rangeFromParams,
+  COMPANY_ORDER, buildBranchRows, companyFromParams, formatDate, formatRange, normalizeCompany, rangeFromParams, showBeFor,
 } from '@/app/lib/period';
 import { LoadingDone } from '@/app/components/Loading';
 import BranchView from '@/app/components/BranchView';
@@ -53,6 +53,7 @@ export default async function TeamSalesPage({
   const rangeMonths = months.filter((m) => m >= fromYM && m <= toYM);
   const tg = timeGone(rangeMonths);
   const rangeLabel = fromYM ? formatRange(fromYM, toYM) : '';
+  const showBe = showBeFor(fromYM, toYM, latestDate);
 
   return (
     <>
@@ -71,13 +72,13 @@ export default async function TeamSalesPage({
         )}
         {!errorMessage && (princRows ? (
           <PrincReport rows={princRows} timeGonePct={tg.pct} targetLabel={rangeLabel}
-            dataLabel={`GIV ${formatDate(`${fromYM}-01`)} – ${formatDate(givTo)} · Target / BE ${rangeLabel}${companyFilter !== 'all' ? ` · ${companyFilter}` : ''}`}
-            fileTag={givTo} />
+            dataLabel={`GIV ${formatDate(`${fromYM}-01`)} – ${formatDate(givTo)} · Target${showBe ? ' / BE' : ''} ${rangeLabel}${companyFilter !== 'all' ? ` · ${companyFilter}` : ''}`}
+            fileTag={givTo} showBe={showBe} />
         ) : (
           <p className="empty">รอข้อมูล Princ รายสาขา — รัน supabase/princ_store.sql ใน Supabase ก่อน</p>
         ))}
         {!errorMessage && (
-          <BranchView rows={rows} companies={companies} timeGonePct={tg.pct} periodLabel={rangeLabel} sheetUpdatedAt={updatedAt} />
+          <BranchView rows={rows} companies={companies} timeGonePct={tg.pct} periodLabel={rangeLabel} sheetUpdatedAt={updatedAt} showBe={showBe} />
         )}
       </main>
     </>

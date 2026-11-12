@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { fmtInt, fmtShort } from '@/app/lib/format';
 import { monthAbbr } from '@/app/lib/period';
 
-export type CreditStore = { cardcode: string; name: string; giv: number[]; total: number; active: number };
+export type CreditStore = { cardcode: string; name: string; giv: number[]; total: number; active: number; bills?: number };
 type Filter = 'all' | 'every' | 'some' | 'lost';
 const FIRST = 40;
 

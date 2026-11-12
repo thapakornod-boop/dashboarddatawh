@@ -43,6 +43,12 @@ export function companyFromParams(params: SearchParams): string {
   return COMPANY_ORDER.includes(v) ? v : 'all';
 }
 
+// BE (Best Estimate) เป็นค่าคาดการณ์ของ "เดือนปัจจุบัน" เท่านั้น → แสดงเฉพาะตอนเลือกเดือนปัจจุบันเดือนเดียว
+// เลือกเดือนย้อนหลัง (กี่เดือนก็ตาม) หรือช่วงหลายเดือน → ซ่อน BE ทุกหน้า
+export function showBeFor(fromYM: string, toYM: string, latestDate: string) {
+  return !!fromYM && fromYM === toYM && toYM === latestDate.slice(0, 7);
+}
+
 // ช่วงเดือนจาก ?from=&to= (ค่าเริ่มต้น = เดือนล่าสุดที่มีข้อมูล ถ้าเลือกกลับด้านก็สลับให้)
 // ทุกหน้าใช้ชื่อพารามิเตอร์เดียวกัน → เปลี่ยนหน้าผ่านเมนูแล้วช่วงเดือนตามไปด้วย
 export function rangeFromParams(params: SearchParams, months: string[], latestDate: string) {

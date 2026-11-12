@@ -42,8 +42,9 @@ export type SellerTarget = { company: string; seller: string; principal: string;
 
 export default function CompanyShare({
   rows, companies, detail, sellerNames = {}, sellerChannels = {}, nMonths = 1, hasPrev = false,
-  targets = [], prevDetail = [], baseLabel = '', sellerTargets = [], timeGonePct = 0,
+  targets = [], prevDetail = [], baseLabel = '', sellerTargets = [], timeGonePct = 0, id,
 }: {
+  id?: string;
   rows: CompanyPrincRow[]; companies: string[]; detail?: BranchPrincRow[] | null;
   sellerNames?: Record<string, string>; sellerChannels?: Record<string, string>;
   coStats?: Record<string, CoStat>; nMonths?: number; hasPrev?: boolean; prevLabel?: string;
@@ -176,7 +177,7 @@ export default function CompanyShare({
   const pctOf = (v: number, base: number) => (base ? `${((v / base) * 100).toFixed(1)}%` : '–');
 
   return (
-    <section className="card share">
+    <section className="card share sec-anchor" id={id}>
       <header className="card-head">
         <div>
           <h3 className="card-title">สัดส่วนยอดขาย</h3>

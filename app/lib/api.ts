@@ -383,6 +383,35 @@ export function getCreditSellerStores(company: string, seller: string, from: str
   });
 }
 
+// ── Export Excel ภาพรวม (supabase/export.sql) · ยังไม่ได้รัน SQL → null ──
+// ทุกร้านในช่วง: rows = [บริษัท, รหัสร้าน, เดือน, GIV, NIV, บิล, ซื้อล่าสุด] · stores = [บริษัท, รหัสร้าน, RSM code, ชื่อร้าน]
+export type StoreExport = {
+  rows: [string, string, string, number, number, number, string][];
+  stores: [string, string, string | null, string | null][];
+};
+export async function getStoreExport(companies: string[], from: string, to: string): Promise<StoreExport | null> {
+  try {
+    return await rpcScalar<StoreExport>('store_export', { p_from: from, p_to: to, p_companies: companies });
+  } catch (err) {
+    if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+    throw err;
+  }
+}
+
+// ร้านของเซลล์เครดิตทุกคน: rows = [บริษัท, เซลล์, รหัสร้าน, เดือน, GIV, บิล] · names = [บริษัท, รหัสร้าน, ชื่อร้าน]
+export type CreditExport = {
+  rows: [string, string, string, string, number, number][];
+  names: [string, string, string | null][];
+};
+export async function getCreditExport(keys: string[], from: string, to: string): Promise<CreditExport | null> {
+  try {
+    return await rpcScalar<CreditExport>('credit_export', { p_keys: keys, p_from: from, p_to: to });
+  } catch (err) {
+    if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+    throw err;
+  }
+}
+
 // ── หน้าสถานะระบบ (supabase/security.sql) · ยังไม่ได้รัน SQL → null ──
 export type CronJob = {
   jobname: string; schedule: string; active: boolean;

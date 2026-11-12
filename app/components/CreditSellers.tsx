@@ -6,6 +6,10 @@ import { useMemo, useState } from 'react';
 import { COMPANY_COLORS, fmtInt } from '@/app/lib/format';
 import { monthAbbr } from '@/app/lib/period';
 import LoadingLink from '@/app/components/LoadingLink';
+import ExportBar from '@/app/components/ExportBar';
+import type { CreditStore } from '@/app/components/CreditStoreGrid';
+import { creditSheets, creditStoreSheet } from '@/app/lib/exportSheets';
+import { exportedAt } from '@/app/lib/xlsx';
 
 export type CreditSeller = {
   key: string; company: string; seller: string; name: string; branch: string; princ: string;
@@ -16,9 +20,11 @@ export type CreditSeller = {
 const ALL = '';
 const f1 = (n: number) => n.toLocaleString('th-TH', { maximumFractionDigits: 1 });
 
-export default function CreditSellers({ sellers, months, companies, pickedKey, hrefFor }: {
+export type CreditExportInfo = { rangeLabel: string; company: string; overviewHref: string; fileTag: string };
+
+export default function CreditSellers({ sellers, months, companies, pickedKey, hrefFor, exportInfo, pickedStores }: {
   sellers: CreditSeller[]; months: string[]; companies: string[]; pickedKey: string;
-  hrefFor: Record<string, string>;
+  hrefFor: Record<string, string>; exportInfo: CreditExportInfo; pickedStores?: CreditStore[];
 }) {
   const [co, setCo] = useState(ALL);
   const [princ, setPrinc] = useState(ALL);
@@ -47,6 +53,26 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
     return { m, stores, bills, giv };
   }, [list, months]);
 
+  // Export ตาม filter: เซลล์ที่เห็นในตารางตอนนี้ (+ ร้านของเซลล์ที่เลือกอยู่ ถ้าอยู่ในตัวกรอง)
+  const filterSheets = () => {
+    const info: [string, string][] = [
+      ['ช่วงเดือน', exportInfo.rangeLabel],
+      ['บริษัท', co || exportInfo.company],
+      ['ตัวกรอง', [princ && `Princ ${princ}`, term && `ค้นหา "${q.trim()}"`].filter(Boolean).join(' · ') || 'ไม่มี'],
+      ['จำนวนเซลล์', `${list.length} คน`],
+      ['Export เมื่อ', exportedAt()],
+    ];
+    const sheets = creditSheets(list, months, info);
+    const picked = list.find((s) => s.key === pickedKey);
+    if (picked && pickedStores?.length) {
+      sheets.push(creditStoreSheet(
+        pickedStores.map((x) => ({ company: picked.company, seller: picked.seller, sellerName: picked.name, cardcode: x.cardcode, name: x.name, giv: x.giv, bills: x.bills ?? 0 })),
+        months, info, `ร้านของ ${picked.name || picked.seller} (${picked.company} · ${picked.seller}) · GIV รายเดือน`,
+      ));
+    }
+    return sheets;
+  };
+
   const avg = (s: CreditSeller, k: 'stores' | 'bills') => months.reduce((t, ym) => t + (s.months[ym]?.[k] ?? 0), 0) / Math.max(n, 1);
 
   return (
@@ -73,6 +99,15 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
         <button type="button" className="clear-btn" onClick={() => { setCo(ALL); setPrinc(ALL); setQ(''); }} disabled={!co && !princ && !q}>ล้างตัวกรอง</button>
         <span className="muted credit-count">{list.length} คน</span>
       </div>
+
+      <ExportBar
+        filterSheets={filterSheets}
+        filterName={`ร้านเครดิต-ตามfilter-${exportInfo.fileTag}.xlsx`}
+        filterHint={`เซลล์ ${list.length} คนที่เห็นในตารางตอนนี้ (บริษัท / Princ / ค้นหา)${pickedStores?.length ? ' + ร้านของเซลล์ที่เลือก' : ''}`}
+        overviewHref={exportInfo.overviewHref}
+        overviewHint="เซลล์เครดิตทุกคนในช่วงเดือนที่เลือก + ร้านของทุกคน"
+        disabled={list.length === 0}
+      />
 
       {list.length === 0 ? <p className="empty">ไม่มีเซลล์ตามตัวกรอง</p> : (
         <div className="credit-wrap">

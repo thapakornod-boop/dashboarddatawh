@@ -158,6 +158,29 @@ export const DASHBOARD_CSS = `
         .field select:disabled { background: var(--alt); color: var(--neutral); }
         .arrow { color: var(--neutral); padding-bottom: 8px; }
         .filters-hint { font-size: 12px; color: var(--neutral); margin-left: auto; padding-bottom: 10px; }
+        /* แถบ Export Excel (ร้านค้า / ร้านเครดิต) */
+        .export-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin: 4px 0 16px; padding: 12px 14px; border: 1px dashed var(--brand-100); border-radius: 12px; background: var(--brand-50); }
+        .export-card .export-bar { margin: 0; border: none; padding: 0; background: transparent; }
+        .export-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--brand-700); margin-right: 4px; }
+        .export-bar .btn, .export-bar .clear-btn { min-width: 96px; }
+        .export-hint { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); }
+        /* แถบลัดไปหัวข้อ: แสดงเฉพาะจอ ≤ 900px · ค้างด้านบนตอนเลื่อน · เลื่อนซ้าย-ขวาได้ */
+        .sec-nav { display: none; }
+        .sec-anchor { scroll-margin-top: 72px; }
+        @media (max-width: 900px) {
+          .sec-nav {
+            display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+            position: sticky; top: 0; z-index: 40; margin: -8px 0 -8px; padding: 10px 2px;
+            background: rgba(243,246,251,0.94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
+          }
+          .sec-nav::-webkit-scrollbar { display: none; }
+          .sec-nav button {
+            flex-shrink: 0; border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+            font: 500 14px var(--font-body); padding: 8px 14px; border-radius: 9999px; cursor: pointer; white-space: nowrap;
+          }
+          .sec-nav button.on { background: var(--primary); border-color: var(--primary); color: #FFFFFF; font-weight: 600; }
+          .sec-nav button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+        }
         /* ปุ่มลัด 3 / 6 / 12 เดือนย้อนหลัง — แถวเต็มความกว้างใต้ตัวกรอง */
         .range-presets { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-top: 12px; border-top: 1px solid var(--border, #EEF0F4); }
         .range-presets .seg button { font-size: 14px; padding: 7px 16px; }
@@ -875,6 +898,10 @@ export const DASHBOARD_CSS = `
         .team-table-7 th:nth-child(3), .team-table-7 th:nth-child(4), .team-table-7 th:nth-child(5) { width: 11%; }
         .team-table-7 th:nth-child(6) { width: 10%; } .team-table-7 th:nth-child(7) { width: 12%; }
         .team-table-7 th:nth-child(8), .team-table-7 th:nth-child(9) { width: 7%; }
+        /* เดือนย้อนหลัง: ไม่มี BE → การ์ดสรุป 4 ช่อง / ตาราง 7 คอลัมน์ */
+        .team-summary.team-summary-5.no-be { grid-template-columns: 1fr 1.5fr 1fr 0.8fr; }
+        .team-table-7.no-be th:nth-child(n) { width: auto; }
+        .team-table-7.no-be th:nth-child(1) { width: 22%; } .team-table-7.no-be th:nth-child(2) { width: 15%; }
         .team-table-7 .pct-cell { width: 100%; gap: 6px; }
         .team-table-7 .pct-cell .bar { flex: 1 1 auto; min-width: 24px; width: auto; }
         .team-table-7 td { overflow-wrap: anywhere; }
@@ -921,6 +948,9 @@ export const DASHBOARD_CSS = `
           .filters .btn { align-self: end; }
           .filters-hint { display: none; }
           .range-presets { grid-column: 1 / -1; }
+          /* มือถือ: ปุ่มเลือกเร็ว 2 × 2 ไม่ล้นจอ */
+          .range-presets .seg { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+          .range-presets .seg button { padding: 9px 8px; white-space: normal; }
           .card { padding: 14px; }
         }
 

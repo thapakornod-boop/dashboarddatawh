@@ -36,8 +36,9 @@ function PctChip({ value, base, label }: { value: number | null; base?: number; 
 
 // base = ยอดปีก่อน "ทั้งเดือน" ราย สาขา × เซลล์ × Princ (จัดสาขาแบบเดียวกับปีนี้)
 export function BranchSales({
-  cur, prev, base, baseLabel, targets, companies, curLabel, nMonths, timeGonePct,
+  cur, prev, base, baseLabel, targets, companies, curLabel, nMonths, timeGonePct, showBe = true,
 }: {
+  showBe?: boolean; // false = เลือกเดือนย้อนหลัง / หลายเดือน → ไม่มีคอลัมน์ BE
   cur: BranchPrincRow[]; prev: BranchPrincRow[]; base: BranchPrincRow[]; baseLabel: string; targets: BranchTarget[]; companies: string[];
   curLabel: string; prevLabel: string; nMonths: number; timeGonePct: number;
 }) {
@@ -89,8 +90,8 @@ export function BranchSales({
         <PctChip value={pct(v.cur, v.target)} base={timeGonePct} label="MTD เทียบ Target" />
         <PctChip value={pct(v.cur, v.base)} base={timeGonePct} label="MTD เทียบ Base" />
         <td className="r muted" data-label="Time gone">{tg}</td>
-        <td className={`r${s}`} data-label="BE">{v.be ? fmtInt(v.be) : '–'}</td>
-        <td className="r" data-label="BE เทียบ Target">{pct(v.be, v.target) === null ? '–' : `${pct(v.be, v.target)!.toFixed(1)}%`}</td>
+        {showBe && <td className={`r${s}`} data-label="BE">{v.be ? fmtInt(v.be) : '–'}</td>}
+        {showBe && <td className="r" data-label="BE เทียบ Target">{pct(v.be, v.target) === null ? '–' : `${pct(v.be, v.target)!.toFixed(1)}%`}</td>}
       </>
     ) : (
       <>
@@ -110,7 +111,7 @@ export function BranchSales({
           <h3 className="card-title">{view === 'target' ? 'GIV รายสาขา เทียบ Target' : `${label} รายสาขา เทียบ Base`} · {curLabel}</h3>
           <p className="card-sub">
             {view === 'target'
-              ? `ยอดขายจาก vw_lg014 · Target / BE จากชีต · Base = ยอดปีก่อนทั้งเดือน (${baseLabel}) · % = MTD ÷ Target หรือ Base (เขียว = ถึง Time gone ${tg} แล้ว)`
+              ? `ยอดขายจาก vw_lg014 · ${showBe ? 'Target / BE' : 'Target'} จากชีต · Base = ยอดปีก่อนทั้งเดือน (${baseLabel}) · % = MTD ÷ Target หรือ Base (เขียว = ถึง Time gone ${tg} แล้ว)`
               : `Base = ยอดปีก่อนเต็มเดือน (${baseLabel}) · % = ปีนี้ ÷ Base (เขียว = ถึง Time gone ${tg} แล้ว) · เฉลี่ยต่อเดือน = ÷ ${nMonths} เดือน`}
             {' '}· สาขา PDC / DC ตามสาขาของเซลล์ในชีต
           </p>
@@ -164,8 +165,8 @@ export function BranchSales({
                 <th className="r">MTD เทียบ Target</th>
                 <th className="r">MTD เทียบ Base</th>
                 <th className="r">Time gone</th>
-                <th className="r">BE</th>
-                <th className="r">BE เทียบ Target</th>
+                {showBe && <th className="r">BE</th>}
+                {showBe && <th className="r">BE เทียบ Target</th>}
               </tr>
             ) : (
               <tr>

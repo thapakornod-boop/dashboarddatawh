@@ -49,27 +49,31 @@ const uniq = (values: string[]) => Array.from(new Set(values));
 // ต่ำกว่า Time gone = % GIV เทียบ Target ยังไม่ถึง % เวลาที่ผ่านไป (คนที่ "ขาด")
 const behind = (r: Agg, tg: number) => r.target > 0 && (r.giv / r.target) * 100 < tg;
 
-function Summary({ label, agg, timeGonePct }: { label: string; agg: Agg; timeGonePct: number }) {
+// showBe = false → ช่วงที่เลือกเป็นเดือนย้อนหลัง (BE เป็นค่าคาดการณ์ของเดือนปัจจุบันเท่านั้น) ซ่อน BE ทั้งหมด
+function Summary({ label, agg, timeGonePct, showBe }: { label: string; agg: Agg; timeGonePct: number; showBe: boolean }) {
   const tPct = pctOf(agg.giv, agg.target);
   const bPct = pctOf(agg.giv, agg.be);
   return (
-    <div className="team-summary team-summary-5">
+    <div className={`team-summary team-summary-5${showBe ? '' : ' no-be'}`}>
       <div className="ts-item">
         <span className="eyebrow">Target</span>
         <span className="ts-val">{agg.target ? fmtInt(agg.target) : '–'}</span>
         <span className="ts-cap">{label}</span>
       </div>
-      <div className="ts-item">
-        <span className="eyebrow">BE</span>
-        <span className="ts-val">{agg.be ? fmtInt(agg.be) : '–'}</span>
-        <span className="ts-cap">BE เทียบ Target {fmtPct(pctOf(agg.be, agg.target))}</span>
-      </div>
+      {showBe && (
+        <div className="ts-item">
+          <span className="eyebrow">BE</span>
+          <span className="ts-val">{agg.be ? fmtInt(agg.be) : '–'}</span>
+          <span className="ts-cap">BE เทียบ Target {fmtPct(pctOf(agg.be, agg.target))}</span>
+        </div>
+      )}
       <div className="ts-item ts-main">
         <span className="eyebrow">GIV MTD</span>
         <span className="ts-big">{fmtInt(agg.giv)}</span>
         <span className="ts-pace"><PaceBar pct={tPct} timeGonePct={timeGonePct} size="sm" /></span>
         <span className="ts-cap">
-          เทียบ Target <b style={{ color: paceColor(tPct, timeGonePct) }}>{fmtPct(tPct)}</b> · เทียบ BE <b style={{ color: paceColor(bPct, timeGonePct) }}>{fmtPct(bPct)}</b>
+          เทียบ Target <b style={{ color: paceColor(tPct, timeGonePct) }}>{fmtPct(tPct)}</b>
+          {showBe && <> · เทียบ BE <b style={{ color: paceColor(bPct, timeGonePct) }}>{fmtPct(bPct)}</b></>}
         </span>
       </div>
       <div className="ts-item">
@@ -86,28 +90,28 @@ function Summary({ label, agg, timeGonePct }: { label: string; agg: Agg; timeGon
 }
 
 // แถวตัวเลข ใช้ร่วมกันทั้งแถวคนและแถวหัวกลุ่ม
-function NumberCells({ agg, timeGonePct, strong }: { agg: Agg; timeGonePct: number; strong?: boolean }) {
+function NumberCells({ agg, timeGonePct, strong, showBe }: { agg: Agg; timeGonePct: number; strong?: boolean; showBe: boolean }) {
   const tPct = pctOf(agg.giv, agg.target);
   const bPct = pctOf(agg.giv, agg.be);
   return (
     <>
       <td data-label="Target" className="r">{agg.target ? fmtInt(agg.target) : '–'}</td>
-      <td data-label="BE" className="r">{agg.be ? fmtInt(agg.be) : '–'}</td>
+      {showBe && <td data-label="BE" className="r">{agg.be ? fmtInt(agg.be) : '–'}</td>}
       <td data-label="GIV MTD" className="r strong">{fmtInt(agg.giv)}</td>
       <td data-label="NIV" className={strong ? 'r' : 'r muted'}>{fmtInt(agg.niv)}</td>
       <td data-label="% เทียบ Target" className="r">
         <span className="pct-cell"><PaceBar pct={tPct} timeGonePct={timeGonePct} size="sm" /><b style={{ color: paceColor(tPct, timeGonePct) }}>{fmtPct(tPct)}</b></span>
       </td>
-      <td data-label="% เทียบ BE" className="r"><b style={{ color: paceColor(bPct, timeGonePct) }}>{fmtPct(bPct)}</b></td>
+      {showBe && <td data-label="% เทียบ BE" className="r"><b style={{ color: paceColor(bPct, timeGonePct) }}>{fmtPct(bPct)}</b></td>}
       <td data-label="Time gone" className="r muted">{timeGonePct.toFixed(1)}%</td>
     </>
   );
 }
 
 export default function BranchView({
-  rows, companies, timeGonePct, periodLabel, sheetUpdatedAt,
+  rows, companies, timeGonePct, periodLabel, sheetUpdatedAt, showBe = true,
 }: {
-  rows: BranchSellerRow[]; companies: string[]; timeGonePct: number; periodLabel: string; sheetUpdatedAt: string;
+  rows: BranchSellerRow[]; companies: string[]; timeGonePct: number; periodLabel: string; sheetUpdatedAt: string; showBe?: boolean;
 }) {
   // เริ่มที่ "ทั้งหมด" (ถ้า filter ด้านบนเลือกบริษัทเดียว ก็มีแค่บริษัทนั้น)
   const [company, setCompany] = useState(ALL);
@@ -199,22 +203,22 @@ export default function BranchView({
         <button type="button" className="clear-btn" onClick={reset} disabled={!sm && !sup && !princ && !onlyBehind}>ล้างตัวกรอง</button>
       </div>
 
-      <Summary label={label} agg={sum(filtered)} timeGonePct={timeGonePct} />
+      <Summary label={label} agg={sum(filtered)} timeGonePct={timeGonePct} showBe={showBe} />
 
       {filtered.length === 0 ? (
         <p className="empty">ไม่มีพนักงานตามตัวกรองที่เลือก</p>
       ) : (
-        <table className="rtable team-table team-table-7">
+        <table className={`rtable team-table team-table-7${showBe ? '' : ' no-be'}`}>
           <thead>
             <tr>
               <th>พนักงานขาย</th>
               <th>Princ · สาขา · ช่องทาง</th>
               <th className="r">Target</th>
-              <th className="r">BE</th>
+              {showBe && <th className="r">BE</th>}
               <th className="r">GIV MTD</th>
               <th className="r">NIV</th>
               <th className="r">% เทียบ Target</th>
-              <th className="r">% เทียบ BE</th>
+              {showBe && <th className="r">% เทียบ BE</th>}
               <th className="r">Time gone</th>
             </tr>
           </thead>
@@ -231,7 +235,7 @@ export default function BranchView({
                       {!sm && <button type="button" className="grp-open" onClick={() => { setSm(g.name); setSup(ALL); }}>ดูทีม →</button>}
                     </span>
                   </td>
-                  <NumberCells agg={sum(g.list)} timeGonePct={timeGonePct} strong />
+                  <NumberCells agg={sum(g.list)} timeGonePct={timeGonePct} strong showBe={showBe} />
                 </tr>
                 {showPeople && g.sups.map((s) => (
                   <Fragment key={`${g.name}|${s.name}`}>
@@ -242,7 +246,7 @@ export default function BranchView({
                           <span className="grp-tag">Sup</span>{s.name}
                         </span>
                       </td>
-                      <NumberCells agg={sum(s.list)} timeGonePct={timeGonePct} strong />
+                      <NumberCells agg={sum(s.list)} timeGonePct={timeGonePct} strong showBe={showBe} />
                     </tr>}
                     {s.list.map((r) => (
                       <tr key={`${r.company}|${r.seller}|${r.princ}`} className={behind(r, timeGonePct) ? 'row-behind' : ''}>
@@ -252,7 +256,7 @@ export default function BranchView({
                         <td data-label="Princ · สาขา · ช่องทาง" className="muted">
                           <span className="dot" style={{ background: COMPANY_COLORS[r.company] }} />{r.princ} · {r.branch || '–'} · {r.channel || '–'}
                         </td>
-                        <NumberCells agg={r} timeGonePct={timeGonePct} />
+                        <NumberCells agg={r} timeGonePct={timeGonePct} showBe={showBe} />
                       </tr>
                     ))}
                   </Fragment>
@@ -263,7 +267,7 @@ export default function BranchView({
           <tfoot>
             <tr>
               <td colSpan={2}><b>รวม {label}</b></td>
-              <NumberCells agg={sum(filtered)} timeGonePct={timeGonePct} strong />
+              <NumberCells agg={sum(filtered)} timeGonePct={timeGonePct} strong showBe={showBe} />
             </tr>
           </tfoot>
         </table>

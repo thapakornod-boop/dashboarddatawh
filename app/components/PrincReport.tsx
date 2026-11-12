@@ -35,23 +35,24 @@ function lines(rows: PrincReportRow[], branch: string) {
   return { list, total };
 }
 
-function Cells({ v, tg }: { v: Agg; tg: number }) {
+// showBe = false (เลือกเดือนย้อนหลัง) → ไม่มีคอลัมน์ BE / % BE ทั้งในตาราง รูป และ Excel
+function Cells({ v, tg, showBe }: { v: Agg; tg: number; showBe: boolean }) {
   const pg = v.target ? (v.giv / v.target) * 100 : null;
   const pb = v.target ? (v.be / v.target) * 100 : null;
   return (
     <>
       <td className="r" data-label="Target">{v.target ? fmtInt(v.target) : '–'}</td>
       <td className="r" data-label="GIV MTD">{fmtInt(v.giv)}</td>
-      <td className="r" data-label="BE">{v.be ? fmtInt(v.be) : '–'}</td>
+      {showBe && <td className="r" data-label="BE">{v.be ? fmtInt(v.be) : '–'}</td>}
       <td className="r" data-label="% GIV MTD">{pg === null ? '–' : <span className={`pr-pct ${givTone(pg, tg)}`}>{pctText(pg)}</span>}</td>
-      <td className="r" data-label="% BE">{pb === null ? '–' : <span className={`pr-pct ${beTone(pb)}`}>{pctText(pb)}</span>}</td>
+      {showBe && <td className="r" data-label="% BE">{pb === null ? '–' : <span className={`pr-pct ${beTone(pb)}`}>{pctText(pb)}</span>}</td>}
     </>
   );
 }
 
 // รูปแบบรูปภาพ (คล้ายตาราง Excel ที่ส่งในไลน์) ความกว้างคงที่ ไม่ขึ้นกับจอ
-function Sheet({ rows, branch, tg, targetLabel, dataLabel }: {
-  rows: PrincReportRow[]; branch: string; tg: number; targetLabel: string; dataLabel: string;
+function Sheet({ rows, branch, tg, targetLabel, dataLabel, showBe }: {
+  rows: PrincReportRow[]; branch: string; tg: number; targetLabel: string; dataLabel: string; showBe: boolean;
 }) {
   const { list, total } = lines(rows, branch);
   const cell = (v: Agg) => {
@@ -61,9 +62,9 @@ function Sheet({ rows, branch, tg, targetLabel, dataLabel }: {
       <>
         <td>{v.target ? fmtInt(v.target) : '-'}</td>
         <td>{fmtInt(v.giv)}</td>
-        <td>{v.be ? fmtInt(v.be) : '-'}</td>
+        {showBe && <td>{v.be ? fmtInt(v.be) : '-'}</td>}
         <td className={pg === null ? '' : givTone(pg, tg)}>{pg === null ? '-' : pctText(pg)}</td>
-        <td className={pb === null ? '' : beTone(pb)}>{pb === null ? '-' : pctText(pb)}</td>
+        {showBe && <td className={pb === null ? '' : beTone(pb)}>{pb === null ? '-' : pctText(pb)}</td>}
       </>
     );
   };
@@ -79,9 +80,9 @@ function Sheet({ rows, branch, tg, targetLabel, dataLabel }: {
             <th className="l">Princ</th>
             <th>Sum of Target {targetLabel}</th>
             <th>Sum of ยอดขาย GIV MTD</th>
-            <th>Sum of BE</th>
+            {showBe && <th>Sum of BE</th>}
             <th>% GIV MTD</th>
-            <th>% BE</th>
+            {showBe && <th>% BE</th>}
           </tr>
         </thead>
         <tbody>
@@ -99,7 +100,7 @@ function Sheet({ rows, branch, tg, targetLabel, dataLabel }: {
 }
 
 // ไฟล์ Excel: ชีตเดียว "All" — ตาราง All แล้วตามด้วยตารางทุกสาขาเรียงลงมา สี / รูปแบบเหมือนรูป — โหลด exceljs เฉพาะตอนกด
-async function buildExcel(rows: PrincReportRow[], keys: string[], tg: number, targetLabel: string, dataLabel: string) {
+async function buildExcel(rows: PrincReportRow[], keys: string[], tg: number, targetLabel: string, dataLabel: string, showBe: boolean) {
   const ExcelJS = await import('exceljs');
   const Workbook = ExcelJS.Workbook ?? ExcelJS.default.Workbook;
   const wb = new Workbook();
@@ -109,7 +110,9 @@ async function buildExcel(rows: PrincReportRow[], keys: string[], tg: number, ta
   const border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } } as const;
 
   const ws = wb.addWorksheet('All');
-  ws.columns = [{ width: 14 }, { width: 22 }, { width: 22 }, { width: 18 }, { width: 13 }, { width: 11 }];
+  ws.columns = showBe
+    ? [{ width: 14 }, { width: 22 }, { width: 22 }, { width: 18 }, { width: 13 }, { width: 11 }]
+    : [{ width: 14 }, { width: 22 }, { width: 22 }, { width: 13 }];
   ws.addRow([dataLabel]);
 
   for (const b of keys) {
@@ -119,18 +122,21 @@ async function buildExcel(rows: PrincReportRow[], keys: string[], tg: number, ta
     top.getCell(5).numFmt = '0%';
     [1, 2, 4, 5].forEach((i) => { top.getCell(i).fill = head; top.getCell(i).font = { bold: true }; });
     ws.addRow([]);
-    const h = ws.addRow(['Princ', `Sum of Target ${targetLabel}`, 'Sum of ยอดขาย GIV MTD', 'Sum of BE', '% GIV MTD', '% BE']);
+    const h = ws.addRow(showBe
+      ? ['Princ', `Sum of Target ${targetLabel}`, 'Sum of ยอดขาย GIV MTD', 'Sum of BE', '% GIV MTD', '% BE']
+      : ['Princ', `Sum of Target ${targetLabel}`, 'Sum of ยอดขาย GIV MTD', '% GIV MTD']);
     h.eachCell((c) => { c.fill = head; c.font = { bold: true }; c.border = border; c.alignment = { wrapText: true, vertical: 'bottom', horizontal: 'center' }; });
 
     const { list, total } = lines(rows, b);
     const put = (label: string, v: Agg, isTotal = false) => {
       const pg = v.target ? v.giv / v.target : null;
       const pb = v.target ? v.be / v.target : null;
-      const r = ws.addRow([label, v.target || null, Math.round(v.giv), v.be || null, pg, pb]);
+      const r = ws.addRow(showBe ? [label, v.target || null, Math.round(v.giv), v.be || null, pg, pb] : [label, v.target || null, Math.round(v.giv), pg]);
+      const pctFrom = showBe ? 5 : 4;
       r.eachCell({ includeEmpty: true }, (c, i) => {
         c.border = border;
-        if (i >= 2 && i <= 4) c.numFmt = '#,##0';
-        if (i >= 5) { c.numFmt = '0%'; c.alignment = { horizontal: 'right' }; }
+        if (i >= 2 && i < pctFrom) c.numFmt = '#,##0';
+        if (i >= pctFrom) { c.numFmt = '0%'; c.alignment = { horizontal: 'right' }; }
         if (isTotal) { c.fill = head; c.font = { bold: true }; }
       });
       const tone = (cell: number, t: string) => {
@@ -139,8 +145,8 @@ async function buildExcel(rows: PrincReportRow[], keys: string[], tg: number, ta
         ws.getCell(r.number, cell).fill = style.fill;
         ws.getCell(r.number, cell).font = { ...style.font, bold: isTotal };
       };
-      if (pg !== null) tone(5, givTone(pg * 100, tg));
-      if (pb !== null) tone(6, beTone(pb * 100));
+      if (pg !== null) tone(pctFrom, givTone(pg * 100, tg));
+      if (showBe && pb !== null) tone(6, beTone(pb * 100));
     };
     for (const [p, v] of list) put(p, v);
     put('Grand Total', total, true);
@@ -163,8 +169,8 @@ function download(blob: Blob, name: string) {
 const isTouch = () => window.matchMedia('(pointer: coarse)').matches;
 const noSubscribe = () => () => {};
 
-export default function PrincReport({ rows, timeGonePct, targetLabel, dataLabel, fileTag }: {
-  rows: PrincReportRow[]; timeGonePct: number; targetLabel: string; dataLabel: string; fileTag: string;
+export default function PrincReport({ rows, timeGonePct, targetLabel, dataLabel, fileTag, showBe = true }: {
+  rows: PrincReportRow[]; timeGonePct: number; targetLabel: string; dataLabel: string; fileTag: string; showBe?: boolean;
 }) {
   const [branch, setBranch] = useState(ALL);
   const [busy, setBusy] = useState(false);
@@ -229,7 +235,7 @@ export default function PrincReport({ rows, timeGonePct, targetLabel, dataLabel,
   };
 
   const excel = () => run('กำลังทำไฟล์ Excel', async () => {
-    download(await buildExcel(rows, keys, tg, targetLabel, dataLabel), `GIV-Princ-${fileTag}.xlsx`);
+    download(await buildExcel(rows, keys, tg, targetLabel, dataLabel, showBe), `GIV-Princ-${fileTag}.xlsx`);
     showToast('ดาวน์โหลดไฟล์ Excel แล้ว');
   });
 
@@ -260,8 +266,8 @@ export default function PrincReport({ rows, timeGonePct, targetLabel, dataLabel,
     <section className="card">
       <header className="card-head">
         <div>
-          <h3 className="card-title">GIV MTD เทียบ Target / BE ราย Princ</h3>
-          <p className="card-sub">Target / BE จาก Google Sheet · GIV จาก vw_lg014 · % GIV MTD เขียว = ถึง Time gone {pctText(tg)} · % BE = BE ÷ Target</p>
+          <h3 className="card-title">{showBe ? 'GIV MTD เทียบ Target / BE ราย Princ' : 'GIV เทียบ Target ราย Princ'}</h3>
+          <p className="card-sub">{showBe ? 'Target / BE' : 'Target'} จาก Google Sheet · GIV จาก vw_lg014 · % GIV MTD เขียว = ถึง Time gone {pctText(tg)}{showBe ? ' · % BE = BE ÷ Target' : ' · เดือนย้อนหลังไม่แสดง BE'}</p>
         </div>
         <RefreshButton />
       </header>
@@ -290,18 +296,18 @@ export default function PrincReport({ rows, timeGonePct, targetLabel, dataLabel,
               <th>Princ</th>
               <th className="r">Target {targetLabel}</th>
               <th className="r">GIV MTD</th>
-              <th className="r">BE</th>
+              {showBe && <th className="r">BE</th>}
               <th className="r">% GIV MTD</th>
-              <th className="r">% BE</th>
+              {showBe && <th className="r">% BE</th>}
             </tr>
           </thead>
           <tbody>
             {list.map(([p, v]) => (
-              <tr key={p}><td className="strong">{p}</td><Cells v={v} tg={tg} /></tr>
+              <tr key={p}><td className="strong">{p}</td><Cells v={v} tg={tg} showBe={showBe} /></tr>
             ))}
           </tbody>
           <tfoot>
-            <tr><td className="strong">Grand Total</td><Cells v={total} tg={tg} /></tr>
+            <tr><td className="strong">Grand Total</td><Cells v={total} tg={tg} showBe={showBe} /></tr>
           </tfoot>
         </table>
       )}
@@ -351,7 +357,7 @@ export default function PrincReport({ rows, timeGonePct, targetLabel, dataLabel,
       <div className="xl-offscreen" aria-hidden="true">
         {keys.map((b) => (
           <div key={b || 'all'} ref={(el) => { if (el) sheets.current.set(b, el); else sheets.current.delete(b); }}>
-            <Sheet rows={rows} branch={b} tg={tg} targetLabel={targetLabel} dataLabel={dataLabel} />
+            <Sheet rows={rows} branch={b} tg={tg} targetLabel={targetLabel} dataLabel={dataLabel} showBe={showBe} />
           </div>
         ))}
       </div>
