@@ -6,7 +6,7 @@ import { fmtInt } from '@/app/lib/format';
 
 // ยอดขายรายสาขา (GIV จาก vw_lg014 · Target / BE จากชีต) — 2 มุมมอง
 //   เทียบ Target : Target | Base (ปีก่อนทั้งเดือน) | MTD | % MTD เทียบ Target | % MTD เทียบ Base | Time gone | BE | % BE เทียบ Target
-//   เทียบปีก่อน  : ปีก่อน (ช่วงเดียวกัน) | ปีนี้ | Index | เฉลี่ย/เดือน  (เลือก GIV / NIV ได้)
+//   เทียบ Base   : Base (ปีก่อนเต็มเดือน) | ปีนี้ | % vs Base | เฉลี่ย/เดือน  (เลือก GIV / NIV ได้)
 // สาขา: SDO = สาขาที่ออกบิล · PDC / DC = สาขาของเซลล์ตามชีต (ตรงกับสาขาของ Target) — จัดมาแล้วจากหน้า page
 // เลือกบริษัท / Princ ได้ในการ์ด (บริษัทที่เลือกได้ = ตาม filter ด้านบน)
 export const BRANCH_ORDER = ['RSM', 'UTH', 'KKC', 'RCB', 'BON', 'PSL', 'PTT', 'SRT', 'HDY'];
@@ -36,7 +36,7 @@ function PctChip({ value, base, label }: { value: number | null; base?: number; 
 
 // base = ยอดปีก่อน "ทั้งเดือน" ราย สาขา × เซลล์ × Princ (จัดสาขาแบบเดียวกับปีนี้)
 export function BranchSales({
-  cur, prev, base, baseLabel, targets, companies, curLabel, prevLabel, nMonths, timeGonePct,
+  cur, prev, base, baseLabel, targets, companies, curLabel, nMonths, timeGonePct,
 }: {
   cur: BranchPrincRow[]; prev: BranchPrincRow[]; base: BranchPrincRow[]; baseLabel: string; targets: BranchTarget[]; companies: string[];
   curLabel: string; prevLabel: string; nMonths: number; timeGonePct: number;
@@ -95,9 +95,9 @@ export function BranchSales({
     ) : (
       <>
         <td className="strong">{name}</td>
-        <td className={`r${s}`} data-label={prevLabel}>{v.prev ? fmtInt(v.prev) : '–'}</td>
+        <td className={`r${s}`} data-label="Base">{v.base ? fmtInt(v.base) : '–'}</td>
         <td className="r strong" data-label={curLabel}>{fmtInt(v.cur)}</td>
-        <PctChip value={pct(v.cur, v.prev)} label="Index" />
+        <PctChip value={pct(v.cur, v.base)} base={timeGonePct} label="% vs Base" />
         <td className={`r${s}`} data-label="ยอดขายเฉลี่ย/M">{fmtInt(avg(v.cur))}</td>
       </>
     );
@@ -107,18 +107,18 @@ export function BranchSales({
     <section className="card">
       <header className="card-head">
         <div>
-          <h3 className="card-title">{view === 'target' ? 'GIV รายสาขา เทียบ Target' : `${label} รายสาขา เทียบปีก่อน`} · {curLabel}</h3>
+          <h3 className="card-title">{view === 'target' ? 'GIV รายสาขา เทียบ Target' : `${label} รายสาขา เทียบ Base`} · {curLabel}</h3>
           <p className="card-sub">
             {view === 'target'
               ? `ยอดขายจาก vw_lg014 · Target / BE จากชีต · Base = ยอดปีก่อนทั้งเดือน (${baseLabel}) · % = MTD ÷ Target หรือ Base (เขียว = ถึง Time gone ${tg} แล้ว)`
-              : `เทียบช่วงเดียวกันปีก่อน (${prevLabel}) · Index = ปีนี้ ÷ ปีก่อน × 100 · เฉลี่ยต่อเดือน = ÷ ${nMonths} เดือน`}
+              : `Base = ยอดปีก่อนเต็มเดือน (${baseLabel}) · % = ปีนี้ ÷ Base (เขียว = ถึง Time gone ${tg} แล้ว) · เฉลี่ยต่อเดือน = ÷ ${nMonths} เดือน`}
             {' '}· สาขา PDC / DC ตามสาขาของเซลล์ในชีต
           </p>
         </div>
         <div className="seg-group">
           <div className="seg" role="tablist" aria-label="มุมมอง">
             <button type="button" role="tab" aria-selected={view === 'target'} className={view === 'target' ? 'on' : ''} onClick={() => setView('target')}>เทียบ Target</button>
-            <button type="button" role="tab" aria-selected={view === 'yoy'} className={view === 'yoy' ? 'on' : ''} onClick={() => setView('yoy')}>เทียบปีก่อน</button>
+            <button type="button" role="tab" aria-selected={view === 'yoy'} className={view === 'yoy' ? 'on' : ''} onClick={() => setView('yoy')}>GIV / NIV เทียบ Base</button>
           </div>
           {view === 'yoy' && (
             <div className="seg" role="tablist" aria-label="ตัวชี้วัด">
@@ -170,9 +170,9 @@ export function BranchSales({
             ) : (
               <tr>
                 <th>สาขา</th>
-                <th className="r">{prevLabel}</th>
+                <th className="r" title={baseLabel}>Base</th>
                 <th className="r">{curLabel}</th>
-                <th className="r">Index</th>
+                <th className="r">% vs Base</th>
                 <th className="r">ยอดขายเฉลี่ย/M</th>
               </tr>
             )}

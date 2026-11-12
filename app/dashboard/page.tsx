@@ -163,7 +163,7 @@ function PaceStrip({ tg, giv, target, base }: { tg: TimeGone; giv: number; targe
         </span>
       </div>
       <div className="kpi">
-        <span className="kpi-top"><span className="kpi-ic"><IconTrend /></span><span className="eyebrow">GIV เทียบ Base ปีก่อน</span></span>
+        <span className="kpi-top"><span className="kpi-ic"><IconTrend /></span><span className="eyebrow">GIV เทียบ Base</span></span>
         <div className="kpi-pair">
           <span><small>ยอดทำได้ (MTD)</small><b>{fmtInt(giv)}</b></span>
           <span><small>Base</small><b className="kpi-goal">{base.hasPrev ? fmtInt(base.full.GIV) : '–'}</b></span>
@@ -236,15 +236,11 @@ function MetricCard({ label, sub, cur, base, goal, tg, note }: {
             <VsRow label="BE" sub="คาดการณ์ทั้งเดือน" cur={cur} base={goal.be} tgPct={tg.pct} />
           </>
         )}
-        <VsRow label={base.split ? 'Base ปีก่อน (MTD)' : 'Base ปีก่อน'} sub={base.mtdLabel}
-          cur={cur} base={base.hasPrev ? base.mtd[label] : 0} missing="ยังไม่มีข้อมูล" />
-        {base.split && (
-          <VsRow label="Base ปีก่อน (ทั้งเดือน)" sub={base.fullLabel}
-            cur={cur} base={base.hasPrev ? base.full[label] : 0} tgPct={tg.pct} missing="ยังไม่มีข้อมูล" />
-        )}
+        <VsRow label="Base" sub={base.fullLabel}
+          cur={cur} base={base.hasPrev ? base.full[label] : 0} tgPct={tg.pct} missing="ยังไม่มีข้อมูล" />
       </div>
       <p className="vs-foot">
-        <b>Time gone {tg.pct.toFixed(1)}%</b> · % = MTD ÷ ยอดฐาน · ฐานทั้งเดือน (Target / BE / ปีก่อนทั้งเดือน) เขียวเมื่อ % ถึง Time gone · ปีก่อน (MTD) เขียวเมื่อ ≥ 100%
+        <b>Time gone {tg.pct.toFixed(1)}%</b> · % = MTD ÷ ยอดฐาน · Base = ยอดเดือนเดียวกันของปีก่อนเต็มเดือน · เขียวเมื่อ % ถึง Time gone
         {goal && goal.target && goal.be ? ` · BE เทียบ Target ${fmtPct(pctOf(goal.be, goal.target))}` : ''}
       </p>
       {note && <div className="note">{note}</div>}
@@ -310,14 +306,15 @@ function PeriodTable({ metric, periods }: { metric: 'GIV' | 'NIV'; periods: Peri
   );
 }
 
-// ── การ์ดรายบริษัท: ยอด → เทียบ Target → เทียบปีก่อน → เฉลี่ยต่อเซลล์ ──
-function CompanyCards({ stats, tg, hasPrev, prevLabel }: { stats: CompanyStat[]; tg: TimeGone; hasPrev: boolean; prevLabel: string }) {
+// ── การ์ดรายบริษัท: ยอด → เทียบ Target → เทียบ Base (ปีก่อนเต็มเดือน) ──
+function CompanyCards({ stats, tg, hasPrev, baseLabel, baseOf }: { stats: CompanyStat[]; tg: TimeGone; hasPrev: boolean; baseLabel: string; baseOf: (co: string) => number }) {
   const totalGiv = stats.reduce((s, c) => s + c.cur.GIV, 0);
   return (
     <div className="grid-3">
       {stats.map((c) => {
         const tPct = pctOf(c.cur.GIV, c.target);
-        const yPct = hasPrev ? pctOf(c.cur.GIV, c.prev.GIV) : null;
+        const b = hasPrev ? baseOf(c.company) : 0;
+        const bPct = b ? pctOf(c.cur.GIV, b) : null;
         return (
           <section className="card co" key={c.company} style={{ '--co-color': COMPANY_COLORS[c.company] } as React.CSSProperties}>
             <header className="co-head">
@@ -336,9 +333,10 @@ function CompanyCards({ stats, tg, hasPrev, prevLabel }: { stats: CompanyStat[];
                 <span className="co-vs-bar"><PaceBar pct={tPct} timeGonePct={tg.pct} size="sm" /></span>
               </div>
               <div className="co-vs-row">
-                <span className="co-vs-name" title={prevLabel}>vs ปีก่อน</span>
-                <span className="co-vs-num">{hasPrev ? fmtInt(c.prev.GIV) : '–'}</span>
-                {yPct == null ? <span className="co-vs-pct muted">–</span> : <b className={`co-vs-pct sc-chip ${yPct >= 100 ? 'up' : 'down'}`}>{fmtPct(yPct)}</b>}
+                <span className="co-vs-name" title={baseLabel}>vs Base</span>
+                <span className="co-vs-num">{b ? fmtInt(b) : '–'}</span>
+                <b className="co-vs-pct" style={{ color: paceColor(bPct, tg.pct) }}>{fmtPct(bPct)}</b>
+                <span className="co-vs-bar"><PaceBar pct={bPct} timeGonePct={tg.pct} size="sm" /></span>
               </div>
             </div>
           </section>
@@ -627,8 +625,8 @@ export default async function SalesOverviewPage({
 
                 {/* ─── 3. รายบริษัท ─── */}
                 <div className="section">
-                  <div className="section-title"><h2>ยอดขายแยกตามบริษัท</h2><span>{rangeLabel} · vs Target · vs ปีก่อน {prevRangeLabel}</span></div>
-                  <CompanyCards stats={companyStats} tg={tg} hasPrev={hasPrev} prevLabel={prevRangeLabel} />
+                  <div className="section-title"><h2>ยอดขายแยกตามบริษัท</h2><span>{rangeLabel} · vs Target · vs Base {baseStat.fullLabel}</span></div>
+                  <CompanyCards stats={companyStats} tg={tg} hasPrev={hasPrev} baseLabel={baseStat.fullLabel} baseOf={(co) => baseFullOf(co).GIV} />
                 </div>
 
                 {/* ─── 4. สัดส่วน บริษัท → Principal → กดเจาะดูสาขา / เซลล์ ─── */}

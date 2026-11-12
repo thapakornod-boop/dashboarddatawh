@@ -94,23 +94,25 @@ export default function Scorecard({
   ];
 
   // ── 2. Sales vs Base / YA ──
-  const yoy = (title: string, desc: ReactNode, cur: (s: CompanyScore) => number | undefined, base: (s: CompanyScore) => number | undefined, onlySdo = false, extra: Col[] = []) => {
+  const yoy = (title: string, desc: ReactNode, cur: (s: CompanyScore) => number | undefined, base: (s: CompanyScore) => number | undefined, onlySdo = false) => {
     const cos = onlySdo ? companies.filter((c) => c === 'SDO') : companies;
     return cos.length === 0 ? null : (
       <ScoreTable title={title} desc={desc} companies={cos} group={!onlySdo} cols={[
-        ...extra,
-        { head: 'Base (ปีก่อน)', note: 'ช่วงเดียวกันของปีก่อน', cell: (co) => num(S(co) ? base(S(co)!) : null), total: () => num(sum(base)) },
+        { head: 'YA', note: 'ช่วงเดียวกันของปีก่อน', cell: (co) => num(S(co) ? base(S(co)!) : null), total: () => num(sum(base)) },
         { head: `Sales ${M}`, note: 'ปีนี้', cell: (co) => <b>{num(S(co) ? cur(S(co)!) : null)}</b>, total: () => num(sum(cur)) },
         { head: 'Index', note: 'ปีนี้ ÷ ปีก่อน × 100', cell: (co) => <Index cur={S(co) ? cur(S(co)!) : null} base={S(co) ? base(S(co)!) : null} />, total: () => <Index cur={sum(cur)} base={sum(base)} /> },
       ]} />
     );
   };
-  // Base ทั้งเดือนของปีก่อน (ไว้ดูว่าทั้งเดือนต้องทำได้เท่าไร)
-  const baseFullCol: Col = {
-    head: 'Base (ทั้งเดือน)', note: 'เดือนเดียวกันปีก่อน ทั้งเดือน',
-    cell: (co) => num(baseFull[co]?.[metric] || null),
-    total: () => num(companies.reduce((t, co) => t + (baseFull[co]?.[metric] ?? 0), 0)),
-  };
+  // ── 2. Sales vs Base: Base = เดือนเดียวกันของปีก่อน "เต็มเดือน" (แบบเดียวกับ Target) ──
+  const bf = (co: string) => baseFull[co]?.[metric] ?? 0;
+  const bfTotal = () => companies.reduce((t, co) => t + bf(co), 0);
+  const vsBase: Col[] = [
+    { head: 'Base', note: 'เดือนเดียวกันปีก่อน เต็มเดือน', cell: (co) => num(bf(co) || null), total: () => num(bfTotal() || null) },
+    { head: `Sales ${M} MTD`, note: 'เดือนนี้ถึงวันล่าสุด', cell: (co) => <b>{num(S(co)?.month?.[metric])}</b>, total: () => num(sum((s) => s.month?.[metric])) },
+    { head: 'Time gone', note: 'วันทำงานที่ผ่านไป ÷ ทั้งเดือน', cell: () => <span className="muted">{tg.pct.toFixed(1)}%</span>, total: () => `${tg.pct.toFixed(1)}%` },
+    { head: '% vs Base', note: 'เขียว = มากกว่า Time gone', cell: (co) => vsTg(div(S(co)?.month?.[metric], bf(co))), total: () => vsTg(div(sum((s) => s.month?.[metric]), bfTotal())) },
+  ];
 
   // ── 3. Sales vs ค่าเฉลี่ย 3 / 6 เดือนก่อน ──
   const vsAvg: Col[] = [
@@ -160,7 +162,8 @@ export default function Scorecard({
         <ScoreTable title="1. Sales vs Target" companies={companies} cols={vsTarget}
           desc={<>ยอดขายเดือนนี้เทียบเป้าทั้งเดือนจาก Google Sheet · % สีเขียว = ถึง Time gone แล้ว (ใช้ GIV เสมอ เพราะ Target ตั้งเป็น GIV)</>} />
 
-        {yoy('2. Sales vs Base', <>{M} เดือนนี้ เทียบเดือนเดียวกันของปีก่อน <b>นับถึงวันที่เดียวกัน</b> ({monthLabel})</>, (s) => s.month?.[metric], (s) => s.base?.[metric], false, [baseFullCol])}
+        <ScoreTable title="2. Sales vs Base" companies={companies} cols={vsBase}
+          desc={<>{M} เดือนนี้ ({monthLabel}) เทียบ Base = ยอดเดือนเดียวกันของปีก่อน <b>เต็มเดือน</b> · % สีเขียว = มากกว่า Time gone แล้ว</>} />
 
         {yoy('3. Sales vs YA (CY)', <>{M} สะสมตั้งแต่ ม.ค. ถึงปัจจุบัน ({labels.cy}) เทียบช่วงเดียวกันของปีก่อน</>, (s) => s.cy.cur?.[metric], (s) => s.cy.prev?.[metric])}
 
