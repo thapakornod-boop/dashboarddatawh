@@ -77,7 +77,7 @@ export const DASHBOARD_CSS = `
         /* มือถือ: เมนูเป็นแถบล่างค้างไว้ตลอด (เนื้อหาเต็มจอ) · โลโก้ย้ายไปหัวเพจ · ออกจากระบบใช้ปุ่มในหัวเพจ */
         @media (max-width: 640px) {
           .shell { display: block; }
-          .main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+          .main { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
           .sidebar {
             position: fixed; top: auto; bottom: 0; left: 0; right: 0; height: auto; width: 100%; z-index: 50;
             flex-direction: row; gap: 0; padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
@@ -204,6 +204,113 @@ export const DASHBOARD_CSS = `
           .kpi:nth-child(3) { border-left: none; }
           .kpi:nth-child(n+3) { border-top: 1px solid var(--border); }
         }
+        /* แถบ KPI 3 ช่อง: Target → Base → Time gone (ตัวเลขใหญ่ อ่านง่าย) */
+        .kpis.kpis-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .kpis-3 .kpi-val { font-size: 34px; }
+        .kpi-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; align-items: end; }
+        .kpi-pair > span { display: grid; gap: 2px; min-width: 0; }
+        .kpi-pair small { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+        .kpi-pair b { font: 600 22px/1.2 var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        .kpi-pair b.kpi-goal { color: var(--brand-700); font-size: 24px; }
+        .kpi-pct { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+        .kpi-pct > b { font: 600 28px var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+        .kpi-pct > b.sc-chip { font-size: 24px; padding: 2px 12px; }
+        .kpi-pct .bar { flex: 1; }
+        .kpis-3 .kpi-cap { font-size: 13.5px; line-height: 1.5; }
+        .kpis-3 .kpi-cap b { color: var(--text); font-variant-numeric: tabular-nums; }
+        .kpis-3 .eyebrow { font-size: 12.5px; }
+        @media (max-width: 900px) {
+          .kpis.kpis-3 { grid-template-columns: 1fr; }
+          .kpis-3 .kpi { border-left: none; }
+          .kpis-3 .kpi + .kpi { border-top: 1px solid var(--border); }
+          .kpis-3 .kpi-val { font-size: 28px; }
+        }
+
+        /* ── ตาราง "เทียบ" ในการ์ด GIV / NIV: เทียบกับ | ยอด | ส่วนต่าง | % ของฐาน ── */
+        .vs { margin-top: 16px; border-top: 1px solid var(--border); }
+        .vs-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 70px; gap: 4px 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid #F0F2F6; font-variant-numeric: tabular-nums; }
+        .vs-head { padding: 8px 0; font-size: 12px; font-weight: 600; color: var(--text-2); letter-spacing: .02em; }
+        .vs-head > div:not(:first-child) { text-align: right; }
+        .vs-name { display: grid; gap: 1px; min-width: 0; }
+        .vs-name b { font-size: 15px; }
+        .vs-name .muted { font-size: 12px; }
+        .vs-base { text-align: right; font-size: 15px; font-weight: 600; }
+        .vs-diff { text-align: right; font-size: 13.5px; }
+        /* คอลัมน์ MTD (ยอดตอนนี้) สีปกติ — สีเขียว / แดงใช้เฉพาะ % */
+        .vs-diff { color: var(--text); font-weight: 600; }
+        .vs-pct { text-align: right; font-size: 16px; }
+        .vs-pct .sc-chip { font-size: 14px; padding: 2px 8px; }
+        .vs-bar { grid-column: 1 / -1; }
+        .vs-foot { margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
+        @container card (max-width: 400px) {
+          .vs-head { display: none; }
+          .vs-row { grid-template-columns: minmax(0, 1fr) auto; }
+          .vs-name { grid-column: 1 / -1; }
+          .vs-base { grid-column: 1; text-align: left; font-size: 17px; }
+          .vs-pct { grid-column: 2; grid-row: 2; }
+          .vs-diff { grid-column: 1 / -1; text-align: left; font-size: 13px; }
+          .vs-diff::before { content: 'MTD '; color: var(--text-2); font-weight: 400; }
+        }
+
+        /* ── การ์ดรายบริษัท: vs Target / vs ปีก่อน / เฉลี่ยต่อเซลล์ ── */
+        .co .co-val { font-size: 22px; }
+        .co-vs { margin-top: 14px; border-top: 1px solid var(--border); }
+        .co-vs-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 72px; gap: 4px 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid #F0F2F6; font-variant-numeric: tabular-nums; }
+        .co-vs-row:last-child { border-bottom: none; }
+        .co-vs-name { font-size: 14px; font-weight: 600; min-width: 0; }
+        .co-vs-name .muted { font-weight: 400; font-size: 12px; }
+        .co-vs-num { font-size: 15.5px; text-align: right; }
+        .co-vs-pct { text-align: right; font-size: 15px; justify-self: end; }
+        .co-vs-bar { grid-column: 1 / -1; }
+        .co-vs-note { grid-column: 1 / -1; font-size: 12px; }
+        .seg-group { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+        /* ── Scorecard แบบตาราง (แถว = บริษัท): หัวคอลัมน์อังกฤษ + คำอธิบายไทยตัวเล็ก ── */
+        .sc3-list { display: grid; gap: 26px; }
+        .sc3-head { display: grid; gap: 3px; margin-bottom: 6px; }
+        .sc3-head > b { font: 600 16px var(--font-display); }
+        .sc3-head > span { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+        .sc3-head > span b { color: var(--text); }
+        .sc3-table { font-size: 15px; }
+        .sc3-table th { vertical-align: bottom; white-space: normal; }
+        .sc3-th { display: inline-grid; gap: 1px; justify-items: end; font-size: 13px; color: var(--text); }
+        .sc3-th small { font-size: 11px; font-weight: 400; color: var(--text-2); line-height: 1.3; }
+        .sc3-table td.strong { font-size: 15.5px; }
+        .sc3-table tfoot td { background: #FAFAFB; }
+        .sc3-table tr.sc3-break td { border-top: 2px solid var(--border); }
+        .sc3-table .sc-chip { font-size: 14px; padding: 2px 9px; }
+        .sc3-bar { display: block; min-width: 110px; }
+        @container card (max-width: 800px) { .sc3-bar { min-width: 0; width: 60%; margin-left: auto; } }
+
+        /* ── Scorecard แบบใหม่: 1 แถว = 1 ตัวชี้วัด + สูตรตัวเล็ก ── */
+        .score2 th:first-child { width: 34%; }
+        .score2 td { vertical-align: middle; padding-top: 14px; padding-bottom: 14px; }
+        .sc2-label { display: flex; flex-direction: column; gap: 3px; }
+        .sc2-label b { font-size: 15px; }
+        .sc2-formula { font-size: 12px; line-height: 1.5; color: var(--text-2); }
+        .sc2-formula b { color: var(--text); font-weight: 600; }
+        .sc2-cell { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-variant-numeric: tabular-nums; }
+        .sc2-main { font-size: 17px; width: fit-content; }
+        .sc2-main.sc-chip { font-size: 16px; padding: 3px 10px; }
+        .sc2-num { font: 600 19px var(--font-display); letter-spacing: -0.01em; }
+        .sc2-sub { font-size: 13px; color: var(--text-2); }
+        .sc2-sub b { color: var(--text); }
+        @container card (max-width: 800px) {
+          .score2 td.sc2-label { background: var(--brand-50); margin: -8px -14px 6px; padding: 10px 14px; width: auto; border-radius: 12px 12px 0 0; align-items: flex-start; text-align: left; }
+          .score2 td:not(.sc2-label) { align-items: flex-start; }
+          .score2 td:not(.sc2-label) > * { flex: 1; max-width: 68%; align-items: flex-end; text-align: right; }
+        }
+        .sc-visit { margin-top: 22px; padding-top: 16px; border-top: 2px solid var(--brand-100); }
+        .sc-visit-head { display: grid; gap: 4px; margin-bottom: 14px; }
+        .sc-visit-head > b { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--brand-700); }
+        .sc-visit-grid { display: grid; gap: 14px; }
+        .sc-visit-co { border: 1px solid var(--border); border-top: 4px solid var(--co); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+        .sc-visit-name { font: 600 17px var(--font-display); margin-bottom: 6px; }
+        .sc-visit-table { font-size: 14.5px; }
+        .sc-visit-table th { font-size: 12px; }
+        .sc-visit-table th:first-child { width: 16%; }
+        .sc-visit-table td.strong { font-size: 15px; }
+        .sc-visit-total td { font-weight: 600; }
 
         /* ── การ์ด GIV / NIV ── */
         .metric-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
@@ -342,6 +449,13 @@ export const DASHBOARD_CSS = `
         .tile-name { font-weight: 600; display: flex; align-items: center; }
         .tile-val { font: 600 22px var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
         .tile-meta { font-size: 12px; color: var(--text-2); }
+        .tile-stats { display: grid; gap: 3px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); width: 100%; font-variant-numeric: tabular-nums; }
+        .tile-stats > span { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: baseline; font-size: 12.5px; }
+        .tile-stats i { font-style: normal; color: var(--text-2); text-align: left; white-space: nowrap; }
+        .tile-stats b { font-size: 13.5px; color: var(--text); }
+        .tile-stats em { font-style: normal; font-size: 11.5px; color: var(--text-2); min-width: 44px; text-align: right; }
+        .tile-stats em.up { color: #389E0D; font-weight: 600; }
+        .tile-stats em.down { color: #CF1322; font-weight: 600; }
         .tile-share { height: 4px; background: var(--track); border-radius: 9999px; overflow: hidden; margin-top: 4px; }
         .tile-share > span { display: block; height: 100%; }
         .share-detail { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
@@ -375,6 +489,28 @@ export const DASHBOARD_CSS = `
         .drill-title { font: 600 22px/1.2 var(--font-display); margin-top: 2px; }
         .drill-title .muted { font-size: 15px; font-weight: 400; }
         .drill-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .drill-up { color: #389E0D !important; font-weight: 600; }
+        .drill-down { color: #CF1322 !important; font-weight: 600; }
+        .drill-kpi .muted b { font: 700 13px var(--font-body); }
+        /* เจาะดู Principal: ตารางรายสาขา เต็มความกว้าง */
+        .drill-branches.drill-tables { grid-template-columns: minmax(0, 1fr); }
+        .drill-table { font-size: 14px; }
+        .drill-table th { font-size: 12px; white-space: normal; }
+        .drill-table tr.drill-branch-row td { background: #F6F9FF; font-weight: 600; border-bottom: 2px solid var(--brand-100); }
+        .drill-bname { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; }
+        .drill-contrib { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; width: 100%; }
+        .drill-contrib .princ-bar { width: 60px; flex-shrink: 0; }
+        .drill-contrib b { min-width: 48px; text-align: right; }
+        @container card (max-width: 800px) { .drill-contrib .princ-bar { display: none; } }
+        .drill-note { margin: 4px 0 10px; font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+        .drill-note b { color: var(--text); }
+        .drill-bgrid { display: grid; grid-template-columns: 1.3fr 0.8fr 1fr 1fr; gap: 1px 10px; align-items: baseline; font-variant-numeric: tabular-nums; font-size: 14px; }
+        .drill-bgrid .h { font-size: 11px; color: var(--text-2); font-weight: 600; }
+        .drill-bgrid > b { font-size: 15px; }
+        .drill-bgrid small { display: block; font-size: 11px; color: var(--text-2); }
+        .drill-list-head { display: flex; justify-content: space-between; padding: 8px 0 2px 36px; font-size: 11px; font-weight: 600; color: var(--text-2); }
+        .drill-bstats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+        .drill-bstats b { color: var(--text); }
         .drill-kpi { display: grid; gap: 2px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
         .drill-kpi b { font: 600 19px/1.25 var(--font-display); font-variant-numeric: tabular-nums; overflow-wrap: break-word; }
         .drill-kpi .muted { font-size: 12.5px; overflow-wrap: anywhere; }
@@ -417,13 +553,13 @@ export const DASHBOARD_CSS = `
         }
 
         /* ── ยอดขายตามทีม ── */
-        .branch-table { font-size: 16px; table-layout: fixed; }
-        .branch-table th { font-size: 13.5px; padding: 12px 16px; }
-        .branch-table td { padding: 14px 16px; }
-        .branch-table th:first-child { width: 14%; }
-        .branch-table td.strong { font-size: 17px; font-weight: 700; }
-        .branch-table tfoot td { font-weight: 700; font-size: 17px; }
-        .branch-table .idx-chip { font-size: 15px; min-width: 64px; padding: 4px 12px; }
+        .branch-table { font-size: 15px; table-layout: fixed; }
+        .branch-table th { font-size: 12.5px; padding: 10px 8px; white-space: normal; vertical-align: bottom; line-height: 1.3; }
+        .branch-table td { padding: 13px 8px; }
+        .branch-table th:first-child { width: 8%; }
+        .branch-table td.strong { font-size: 15.5px; font-weight: 700; }
+        .branch-table tfoot td { font-weight: 700; font-size: 15px; }
+        .branch-table .idx-chip { font-size: 14px; min-width: 58px; padding: 3px 8px; }
         @container card (max-width: 800px) {
           .branch-table { font-size: 15px; table-layout: auto; }
           .branch-table td { padding: 9px 0; }
@@ -441,6 +577,52 @@ export const DASHBOARD_CSS = `
         .store-search { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
         .store-input { flex: 1 1 260px; min-width: 0; height: 44px; padding: 0 14px; font: inherit; font-size: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); }
         .store-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
+        /* ── หน้าร้านเครดิต ── */
+        .credit-table { font-size: 14.5px; }
+        .credit-wrap { overflow-x: auto; }
+        .credit-table th.c { text-align: center; }
+        .credit-mhead { border-bottom: none; font-size: 13px; color: var(--text); }
+        .credit-sub > span { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11.5px; text-align: right; }
+        .credit-table td.credit-a { border-left: 1px solid #EEF1F6; }
+        .credit-table th.credit-avg, .credit-table td.credit-avg { background: var(--brand-50); }
+        .credit-search { flex: 1 1 220px; }
+        .credit-search .store-input { flex: none; height: 38px; font-size: 14px; width: 100%; }
+        .credit-search { flex: 1 1 220px; max-width: 360px; }
+        .credit-count { align-self: center; font-size: 13px; }
+        @container card (max-width: 800px) { .credit-wrap { overflow: visible; } .credit-table td.credit-a { border-left: none; } }
+        .credit-seller { display: grid; gap: 2px; color: var(--text); text-decoration: none; }
+        .credit-seller b { color: var(--primary); font-size: 15px; }
+        .credit-seller:hover b { text-decoration: underline; }
+        .credit-seller .muted { font-size: 12.5px; }
+        .credit-table tr.credit-on td { background: var(--brand-50); }
+        .credit-table tfoot td { background: #FAFAFB; }
+        .credit-month-table { font-size: 15px; margin-bottom: 8px; }
+        .cg-title { margin: 22px 0 10px; font-size: 14px; font-weight: 600; }
+        .cg { container: cg / inline-size; display: grid; gap: 10px; }
+        .cg-tabs { flex-wrap: wrap; width: fit-content; max-width: 100%; }
+        .cg-list { list-style: none; margin: 0; padding: 0; }
+        .cg-row { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(0, 2fr) 52px 110px; gap: 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid #F0F2F6; font-size: 14px; font-variant-numeric: tabular-nums; }
+        .cg-row .r { text-align: right; }
+        .cg-headrow { font-size: 12px; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--border); }
+        .cg-store { display: grid; gap: 1px; min-width: 0; }
+        .cg-store b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cg-store .code { font-size: 11.5px; color: var(--text-2); }
+        .cg-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; }
+        .cg-mh { text-align: center; }
+        .cg-cell { height: 28px; border-radius: 5px; background: var(--track); display: grid; place-items: center; min-width: 0; overflow: hidden; }
+        .cg-cell.l1 { background: #DBE7FE; } .cg-cell.l2 { background: #A9C6FC; } .cg-cell.l3 { background: #5B93F5; color: #fff; } .cg-cell.l4 { background: #1A55C2; color: #fff; }
+        .cg-v { font-size: 11px; font-weight: 600; white-space: nowrap; }
+        .cg-act { color: var(--text-2); }
+        .cg-act.full { color: #389E0D; font-weight: 600; }
+        .cg-more { width: fit-content; }
+        @container cg (max-width: 640px) {
+          .cg-row { grid-template-columns: minmax(0, 1fr) 44px 92px; gap: 4px 10px; }
+          .cg-row .cg-strip { grid-column: 1 / -1; grid-row: 2; }
+          .cg-headrow { display: none; }
+          .cg-cell { height: 16px; }
+          .cg-v { display: none; }
+        }
+
         /* ── แถบเตือนความครบของข้อมูล / หน้าสถานะระบบ ── */
         .health { border-radius: 12px; padding: 12px 16px; font-size: 14px; display: grid; gap: 4px; border: 1px solid; }
         .health ul { margin: 0; padding-left: 20px; display: grid; gap: 2px; }
@@ -544,6 +726,17 @@ export const DASHBOARD_CSS = `
         .tc-grid { position: absolute; inset: 0 0 24px 44px; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
         .tc-gridline { position: relative; border-top: 1px dashed #E6EAF0; height: 0; }
         .tc-gridline span { position: absolute; right: calc(100% + 6px); top: -8px; font-size: 11px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .tc-avg { position: absolute; left: 44px; right: 0; height: 0; border-top: 2px dashed #FA8C16; z-index: 2; pointer-events: none; }
+        .tc-avg span { position: absolute; right: 0; bottom: 2px; font-size: 11px; font-weight: 600; color: #D46B08; background: rgba(255,255,255,.85); padding: 0 4px; border-radius: 4px; }
+        .st-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+        .st-mode .seg button { font-size: 14px; padding: 8px 16px; }
+        .st-mode .muted { font-size: 13px; }
+        .st-kpis.st-kpis-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .st-kpis-6 .st-kpi-val .sc-chip { font-size: 22px; padding: 2px 12px; }
+        @media (max-width: 1024px) { .st-kpis.st-kpis-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        .store-month-table { font-size: 15px; }
+        .store-month-table tfoot td { background: #FAFAFB; }
+        .store-month-table tr.st-nobuy td { color: var(--neutral); }
         .tc-cols { position: absolute; inset: 0 0 0 44px; display: flex; gap: 2px; }
         .tc-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 0 0 24px; border: none; background: transparent; cursor: pointer; font: inherit; border-radius: 6px; }
         .tc-col.on { background: rgba(48,120,248,.06); }
@@ -651,9 +844,42 @@ export const DASHBOARD_CSS = `
           /* การ์ดแบบกะทัดรัด: Target | GIV · % เต็มแถว · BE | NIV */
           .team-table tr { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
           .team-table td { min-width: 0; }
-          .team-table td:nth-child(1), .team-table td:nth-child(2), .team-table td[data-label="% ถึง Target"] { grid-column: 1 / -1; }
+          .team-table td:nth-child(1), .team-table td:nth-child(2), .team-table td[data-label="% เทียบ Target"] { grid-column: 1 / -1; }
           .team-table td[data-label="Target"], .team-table td[data-label="BE"] { border-top: 1px solid #F4F4F6; }
         }
+        /* สรุปทีม 5 ช่อง: Target | BE | GIV MTD (เด่น) | NIV | Time gone */
+        .team-summary.team-summary-5 { grid-template-columns: 1fr 1fr 1.5fr 1fr 0.8fr; }
+        .team-summary-5 .ts-main { background: var(--brand-50); }
+        .team-summary-5 .ts-val { font-size: 19px; }
+        .team-summary-5 .ts-big { font-size: 26px; }
+        .team-summary-5 .ts-cap { font-size: 12.5px; }
+        @media (max-width: 900px) {
+          .team-summary.team-summary-5 { grid-template-columns: 1fr 1fr; }
+          .team-summary-5 .ts-main { grid-column: 1 / -1; order: -1; border-left: none; border-top: none; }
+          .team-summary-5 .ts-item { border-top: 1px solid var(--border); }
+          .team-summary-5 .ts-item:nth-child(odd) { border-left: none; }
+          .team-summary-5 .ts-item:nth-child(even) { border-left: 1px solid var(--border); }
+          .team-summary-5 .ts-item:nth-child(1) { border-left: none; }
+          .team-summary-5 .ts-item:nth-child(2), .team-summary-5 .ts-item:nth-child(5) { border-left: 1px solid var(--border); }
+          .team-summary-5 .ts-item:nth-child(4) { border-left: none; }
+        }
+        .team-table-7 { font-size: 14px; table-layout: fixed; }
+        .team-table-7 th, .team-table-7 td { padding-left: 8px; padding-right: 8px; }
+        .team-table-7 th { white-space: normal; }
+        .team-table-7 th:nth-child(1) { width: 19%; } .team-table-7 th:nth-child(2) { width: 12%; }
+        .team-table-7 th:nth-child(3), .team-table-7 th:nth-child(4), .team-table-7 th:nth-child(5) { width: 11%; }
+        .team-table-7 th:nth-child(6) { width: 10%; } .team-table-7 th:nth-child(7) { width: 12%; }
+        .team-table-7 th:nth-child(8), .team-table-7 th:nth-child(9) { width: 7%; }
+        .team-table-7 .pct-cell { width: 100%; gap: 6px; }
+        .team-table-7 .pct-cell .bar { flex: 1 1 auto; min-width: 24px; width: auto; }
+        .team-table-7 td { overflow-wrap: anywhere; }
+        @container card (max-width: 800px) {
+          .team-table-7 { table-layout: auto; }
+          .team-table-7 th, .team-table-7 td { padding-left: 0; padding-right: 0; }
+        }
+        .team-table-7 td.strong { font-size: 14.5px; }
+        .behind-btn.on { background: #FFF1F0; border-color: #FFA39E; color: #CF1322; }
+        .team-table tr.row-behind td.seller-cell { box-shadow: inset 3px 0 0 #FF7875; }
 
         @media (max-width: 640px) {
           .container { padding-left: 16px; padding-right: 16px; }

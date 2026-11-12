@@ -4,7 +4,8 @@ import { Fragment, useMemo, useState } from 'react';
 import { COMPANY_COLORS, fmtInt, fmtPct, paceColor, pctOf } from '@/app/lib/format';
 import { PaceBar } from '@/app/components/ui';
 
-// ยอดขายตามทีม: ตัวกรอง บริษัท / หัวหน้า (SM) / Sup / Princ → ตารางเต็มทุกคน จัดกลุ่ม SM → Sup พร้อมยอดรวมกลุ่ม
+// ยอดขายตามทีม: ตัวกรอง บริษัท (เลือก "ทั้งหมด" ได้) / หัวหน้า (SM) / Sup / Princ → ตารางเต็มทุกคน จัดกลุ่ม SM → Sup พร้อมยอดรวมกลุ่ม
+// คอลัมน์: Target | BE | GIV MTD | NIV | % GIV เทียบ Target | % GIV เทียบ BE | Time gone
 // ทุกค่ามาจากชีต BEST - Estimate รวม GIV / NIV (SDO ในชีตรวมยอดเป็นรหัสเขต จับคู่รายรหัสกับระบบไม่ได้)
 export type BranchSellerRow = {
   company: string;
@@ -23,16 +24,17 @@ export type BranchSellerRow = {
 };
 
 const ALL = '';
+const COMPANY_ORDER = ['SDO', 'PDC', 'DC'];
 const NONE = '(ไม่ระบุ)';
 const smOf = (r: BranchSellerRow) => r.sm || NONE;
 const supOf = (r: BranchSellerRow) => r.sup || NONE;
 const princOf = (r: BranchSellerRow) => r.princ || NONE;
 
-type Agg = { target: number; be: number; giv: number; niv: number; sellers: number };
+type Agg = { target: number; be: number; giv: number; niv: number };
 function sum(rows: BranchSellerRow[]): Agg {
   return rows.reduce(
-    (s, r) => ({ target: s.target + r.target, be: s.be + r.be, giv: s.giv + r.giv, niv: s.niv + r.niv, sellers: s.sellers + 1 }),
-    { target: 0, be: 0, giv: 0, niv: 0, sellers: 0 }
+    (s, r) => ({ target: s.target + r.target, be: s.be + r.be, giv: s.giv + r.giv, niv: s.niv + r.niv }),
+    { target: 0, be: 0, giv: 0, niv: 0 }
   );
 }
 
@@ -44,47 +46,60 @@ function groupInOrder(rows: BranchSellerRow[], key: (r: BranchSellerRow) => stri
 }
 
 const uniq = (values: string[]) => Array.from(new Set(values));
+// ต่ำกว่า Time gone = % GIV เทียบ Target ยังไม่ถึง % เวลาที่ผ่านไป (คนที่ "ขาด")
+const behind = (r: Agg, tg: number) => r.target > 0 && (r.giv / r.target) * 100 < tg;
 
 function Summary({ label, agg, timeGonePct }: { label: string; agg: Agg; timeGonePct: number }) {
-  const pct = pctOf(agg.giv, agg.target);
+  const tPct = pctOf(agg.giv, agg.target);
+  const bPct = pctOf(agg.giv, agg.be);
   return (
-    <div className="team-summary">
-      <div className="ts-item ts-main">
-        <span className="eyebrow">{label}</span>
-        <span className="ts-big">{fmtInt(agg.giv)}</span>
-        <span className="ts-cap">GIV · {agg.sellers} คน</span>
-      </div>
+    <div className="team-summary team-summary-5">
       <div className="ts-item">
         <span className="eyebrow">Target</span>
         <span className="ts-val">{agg.target ? fmtInt(agg.target) : '–'}</span>
-        <span className="ts-pace"><PaceBar pct={pct} timeGonePct={timeGonePct} size="sm" /><b style={{ color: paceColor(pct, timeGonePct) }}>{fmtPct(pct)}</b></span>
+        <span className="ts-cap">{label}</span>
       </div>
       <div className="ts-item">
         <span className="eyebrow">BE</span>
         <span className="ts-val">{agg.be ? fmtInt(agg.be) : '–'}</span>
-        <span className="ts-cap">GIV ถึง BE {fmtPct(pctOf(agg.giv, agg.be))}</span>
+        <span className="ts-cap">BE เทียบ Target {fmtPct(pctOf(agg.be, agg.target))}</span>
+      </div>
+      <div className="ts-item ts-main">
+        <span className="eyebrow">GIV MTD</span>
+        <span className="ts-big">{fmtInt(agg.giv)}</span>
+        <span className="ts-pace"><PaceBar pct={tPct} timeGonePct={timeGonePct} size="sm" /></span>
+        <span className="ts-cap">
+          เทียบ Target <b style={{ color: paceColor(tPct, timeGonePct) }}>{fmtPct(tPct)}</b> · เทียบ BE <b style={{ color: paceColor(bPct, timeGonePct) }}>{fmtPct(bPct)}</b>
+        </span>
       </div>
       <div className="ts-item">
         <span className="eyebrow">NIV</span>
         <span className="ts-val">{fmtInt(agg.niv)}</span>
-        <span className="ts-cap">BE เทียบ Target {fmtPct(pctOf(agg.be, agg.target))}</span>
+      </div>
+      <div className="ts-item">
+        <span className="eyebrow">Time gone</span>
+        <span className="ts-val">{timeGonePct.toFixed(1)}%</span>
+        <span className="ts-cap">% GIV ควรถึงค่านี้</span>
       </div>
     </div>
   );
 }
 
-// แถวตัวเลข (Target / GIV / % / BE / NIV) ใช้ร่วมกันทั้งแถวคนและแถวหัวกลุ่ม
-function NumberCells({ agg, timeGonePct, strong }: { agg: Omit<Agg, 'sellers'>; timeGonePct: number; strong?: boolean }) {
-  const pct = pctOf(agg.giv, agg.target);
+// แถวตัวเลข ใช้ร่วมกันทั้งแถวคนและแถวหัวกลุ่ม
+function NumberCells({ agg, timeGonePct, strong }: { agg: Agg; timeGonePct: number; strong?: boolean }) {
+  const tPct = pctOf(agg.giv, agg.target);
+  const bPct = pctOf(agg.giv, agg.be);
   return (
     <>
       <td data-label="Target" className="r">{agg.target ? fmtInt(agg.target) : '–'}</td>
-      <td data-label="GIV" className="r strong">{fmtInt(agg.giv)}</td>
-      <td data-label="% ถึง Target" className="r">
-        <span className="pct-cell"><PaceBar pct={pct} timeGonePct={timeGonePct} size="sm" /><b style={{ color: paceColor(pct, timeGonePct) }}>{fmtPct(pct)}</b></span>
-      </td>
       <td data-label="BE" className="r">{agg.be ? fmtInt(agg.be) : '–'}</td>
+      <td data-label="GIV MTD" className="r strong">{fmtInt(agg.giv)}</td>
       <td data-label="NIV" className={strong ? 'r' : 'r muted'}>{fmtInt(agg.niv)}</td>
+      <td data-label="% เทียบ Target" className="r">
+        <span className="pct-cell"><PaceBar pct={tPct} timeGonePct={timeGonePct} size="sm" /><b style={{ color: paceColor(tPct, timeGonePct) }}>{fmtPct(tPct)}</b></span>
+      </td>
+      <td data-label="% เทียบ BE" className="r"><b style={{ color: paceColor(bPct, timeGonePct) }}>{fmtPct(bPct)}</b></td>
+      <td data-label="Time gone" className="r muted">{timeGonePct.toFixed(1)}%</td>
     </>
   );
 }
@@ -94,14 +109,16 @@ export default function BranchView({
 }: {
   rows: BranchSellerRow[]; companies: string[]; timeGonePct: number; periodLabel: string; sheetUpdatedAt: string;
 }) {
-  const [company, setCompany] = useState(companies[0] ?? 'SDO');
+  // เริ่มที่ "ทั้งหมด" (ถ้า filter ด้านบนเลือกบริษัทเดียว ก็มีแค่บริษัทนั้น)
+  const [company, setCompany] = useState(ALL);
   const [sm, setSm] = useState(ALL);
   const [sup, setSup] = useState(ALL);
   const [princ, setPrinc] = useState(ALL);
-  const co = companies.includes(company) ? company : companies[0];
+  const [onlyBehind, setOnlyBehind] = useState(false);
+  const co = company && companies.includes(company) ? company : ALL;
 
   // ตัวเลือกของแต่ละตัวกรองขึ้นกับตัวกรองก่อนหน้า (บริษัท → หัวหน้า → Sup) ส่วน Princ กรองได้อิสระ
-  const coRows = useMemo(() => rows.filter((r) => r.company === co), [rows, co]);
+  const coRows = useMemo(() => rows.filter((r) => companies.includes(r.company) && (!co || r.company === co)), [rows, co, companies]);
   const smOptions = useMemo(() => uniq(coRows.filter((r) => !princ || princOf(r) === princ).map(smOf)), [coRows, princ]);
   const supOptions = useMemo(
     () => uniq(coRows.filter((r) => (!sm || smOf(r) === sm) && (!princ || princOf(r) === princ)).map(supOf)),
@@ -112,19 +129,23 @@ export default function BranchView({
     [coRows, sm, sup]
   );
 
-  const filtered = useMemo(
+  const base = useMemo(
     () => coRows
       .filter((r) => (!sm || smOf(r) === sm) && (!sup || supOf(r) === sup) && (!princ || princOf(r) === princ))
-      .sort((a, b) => a.order - b.order),
+      .sort((a, b) => COMPANY_ORDER.indexOf(a.company) - COMPANY_ORDER.indexOf(b.company) || a.order - b.order),
     [coRows, sm, sup, princ]
   );
+  const behindCount = useMemo(() => base.filter((r) => behind(r, timeGonePct)).length, [base, timeGonePct]);
+  const filtered = useMemo(() => (onlyBehind ? base.filter((r) => behind(r, timeGonePct)) : base), [base, onlyBehind, timeGonePct]);
   const groups = useMemo(
     () => groupInOrder(filtered, smOf).map((g) => ({ ...g, sups: groupInOrder(g.list, supOf) })),
     [filtered]
   );
 
-  const label = [co, sm && `หัวหน้า ${sm}`, sup && `Sup ${sup}`, princ && princ].filter(Boolean).join(' · ');
-  const reset = () => { setSm(ALL); setSup(ALL); setPrinc(ALL); };
+  const label = [co || (companies.length > 1 ? 'ทุกบริษัท' : companies[0]), sm && `หัวหน้า ${sm}`, sup && `Sup ${sup}`, princ && princ].filter(Boolean).join(' · ');
+  const reset = () => { setSm(ALL); setSup(ALL); setPrinc(ALL); setOnlyBehind(false); };
+  // เลือกหัวหน้าแล้ว หรือกรองเฉพาะคนที่ต่ำกว่า Time gone → แสดงรายคน
+  const showPeople = !!sm || onlyBehind;
 
   return (
     <section className="card teams">
@@ -132,7 +153,7 @@ export default function BranchView({
         <div>
           <h3 className="card-title">ยอดขายตามทีม · {periodLabel}</h3>
           <p className="card-sub">
-            จาก Google Sheet (BEST - Estimate){sheetUpdatedAt ? ` · อัปเดต ${sheetUpdatedAt}` : ''} · ช่องขาวบนแท่ง = Time gone {timeGonePct.toFixed(1)}%
+            จาก Google Sheet (BEST - Estimate){sheetUpdatedAt ? ` · อัปเดต ${sheetUpdatedAt}` : ''} · Time gone {timeGonePct.toFixed(1)}% (ขีดบนแท่ง) · % สีแดง = ต่ำกว่า Time gone
           </p>
         </div>
       </header>
@@ -142,6 +163,7 @@ export default function BranchView({
         <label className="field">
           <span className="field-label">บริษัท</span>
           <select value={co} onChange={(e) => { setCompany(e.target.value); reset(); }} disabled={companies.length < 2}>
+            {companies.length > 1 && <option value={ALL}>ทั้งหมด</option>}
             {companies.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
@@ -171,7 +193,10 @@ export default function BranchView({
             {princOptions.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
         </label>
-        <button type="button" className="clear-btn" onClick={reset} disabled={!sm && !sup && !princ}>ล้างตัวกรอง</button>
+        <button type="button" className={`clear-btn behind-btn${onlyBehind ? ' on' : ''}`} onClick={() => setOnlyBehind((v) => !v)} aria-pressed={onlyBehind}>
+          {onlyBehind ? '✓ ' : ''}เฉพาะคนที่ต่ำกว่า Time gone ({behindCount})
+        </button>
+        <button type="button" className="clear-btn" onClick={reset} disabled={!sm && !sup && !princ && !onlyBehind}>ล้างตัวกรอง</button>
       </div>
 
       <Summary label={label} agg={sum(filtered)} timeGonePct={timeGonePct} />
@@ -179,16 +204,18 @@ export default function BranchView({
       {filtered.length === 0 ? (
         <p className="empty">ไม่มีพนักงานตามตัวกรองที่เลือก</p>
       ) : (
-        <table className="rtable team-table">
+        <table className="rtable team-table team-table-7">
           <thead>
             <tr>
               <th>พนักงานขาย</th>
               <th>Princ · สาขา · ช่องทาง</th>
               <th className="r">Target</th>
-              <th className="r">GIV</th>
-              <th className="r">% ถึง Target</th>
               <th className="r">BE</th>
+              <th className="r">GIV MTD</th>
               <th className="r">NIV</th>
+              <th className="r">% เทียบ Target</th>
+              <th className="r">% เทียบ BE</th>
+              <th className="r">Time gone</th>
             </tr>
           </thead>
           <tbody>
@@ -199,27 +226,26 @@ export default function BranchView({
                   <td colSpan={2}>
                     <span className="grp-name">
                       <span className="grp-tag">SM</span>{g.name}
-                      <span className="grp-count">{g.sups.length} Sup · {g.list.length} คน</span>
+                      <span className="grp-count">{g.sups.length} Sup</span>
                       {/* ยังไม่เลือกหัวหน้า = ภาพรวมรายหัวหน้า กดเพื่อเปิดดูทีมเต็ม */}
                       {!sm && <button type="button" className="grp-open" onClick={() => { setSm(g.name); setSup(ALL); }}>ดูทีม →</button>}
                     </span>
                   </td>
                   <NumberCells agg={sum(g.list)} timeGonePct={timeGonePct} strong />
                 </tr>
-                {sm && g.sups.map((s) => (
+                {showPeople && g.sups.map((s) => (
                   <Fragment key={`${g.name}|${s.name}`}>
                     {/* Sup ที่มีลูกทีมคนเดียว ยอดรวมเท่ากับแถวคนอยู่แล้ว ไม่ต้องมีแถวหัวกลุ่ม */}
                     {s.list.length > 1 && <tr className="grp grp-sup">
                       <td colSpan={2}>
                         <span className="grp-name">
                           <span className="grp-tag">Sup</span>{s.name}
-                          <span className="grp-count">{s.list.length} คน</span>
                         </span>
                       </td>
                       <NumberCells agg={sum(s.list)} timeGonePct={timeGonePct} strong />
                     </tr>}
                     {s.list.map((r) => (
-                      <tr key={`${r.seller}|${r.princ}`}>
+                      <tr key={`${r.company}|${r.seller}|${r.princ}`} className={behind(r, timeGonePct) ? 'row-behind' : ''}>
                         <td data-label="พนักงานขาย" className="seller-cell">
                           <span className="who"><span className="code">{r.seller}</span><span>{r.name}</span></span>
                         </td>

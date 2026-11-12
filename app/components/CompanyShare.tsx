@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import type { BranchPrincRow } from '@/app/lib/api';
-import { COMPANY_COLORS, fmtInt, fmtNum, fmtShort } from '@/app/lib/format';
+import { COMPANY_COLORS, fmtInt, fmtNum, fmtShort, paceColor } from '@/app/lib/format';
 import { rank as branchRank } from '@/app/components/BranchSales';
 
 // สัดส่วนยอดขาย: ภาพรวมทั้งหมดก่อน → เลือกบริษัท → เห็น Principal ทั้งหมดของบริษัทนั้น (ไม่มี scroll)
@@ -33,9 +33,22 @@ function rankBy<T>(list: T[], key: (r: T) => string, value: (r: T) => number) {
   return [...m.values()].sort((a, b) => b.value - a.value);
 }
 
-export default function CompanyShare({ rows, companies, detail, sellerNames = {}, sellerChannels = {} }: {
+// coStats = Target / Base (ยอดปีก่อนทั้งเดือน) / จำนวนเซลล์ที่มียอด ของแต่ละบริษัท (การ์ดบริษัทด้านบน)
+export type CoStat = { target: number; prev: { giv: number; niv: number }; sellers: number };
+
+// targets = Target ราย บริษัท × สาขา × Princ (ชีต) · prevDetail = Base ยอดปีก่อนทั้งเดือน ราย สาขา × เซลล์ × Princ — ใช้ในหน้าต่างเจาะดู Principal
+export type PrincTarget = { company: string; branch: string; principal: string; target: number };
+export type SellerTarget = { company: string; seller: string; principal: string; target: number };
+
+export default function CompanyShare({
+  rows, companies, detail, sellerNames = {}, sellerChannels = {}, coStats = {}, nMonths = 1, hasPrev = false, prevLabel = '',
+  targets = [], prevDetail = [], baseLabel = '', sellerTargets = [], timeGonePct = 0,
+}: {
   rows: CompanyPrincRow[]; companies: string[]; detail?: BranchPrincRow[] | null;
   sellerNames?: Record<string, string>; sellerChannels?: Record<string, string>;
+  coStats?: Record<string, CoStat>; nMonths?: number; hasPrev?: boolean; prevLabel?: string;
+  targets?: PrincTarget[]; prevDetail?: BranchPrincRow[]; baseLabel?: string;
+  sellerTargets?: SellerTarget[]; timeGonePct?: number;
 }) {
   // "KVN008 (VAN)" — ประเภทจากคอลัมน์ Channel ในชีต · SDO ที่ไม่มีในชีตใช้ตัวอักษรในรหัส เช่น 708PS07 → PS, 700MS03 → MS
   const typeOf = (seller: string) => sellerChannels[seller] ?? (/^\d+([A-Z]+)\d*$/.exec(seller)?.[1] ?? '');
@@ -87,15 +100,49 @@ export default function CompanyShare({ rows, companies, detail, sellerNames = {}
   const activePrinc = princ && princs.some((p) => p.princ === princ) ? princ : null;
   const drill = useMemo(() => {
     if (!activePrinc || !detail) return null;
+    const inScope = (co: string) => companies.includes(co) && (sel === ALL || co === sel);
     const list = selDetail.filter((r) => r.principal === activePrinc);
     const sum = list.reduce((s, r) => s + r[metric], 0);
+    const giv = list.reduce((s, r) => s + r.giv, 0);
+
+    // Target (GIV ปีนี้) / Base (ปีก่อนทั้งเดือน) — รวม รายสาขา และรายเซลล์
+    const branchTarget: Record<string, number> = {};
+    let target = 0;
+    for (const t of targets) {
+      if (t.principal !== activePrinc || !inScope(t.company)) continue;
+      target += t.target;
+      branchTarget[t.branch || '-'] = (branchTarget[t.branch || '-'] ?? 0) + t.target;
+    }
+    const sellerTarget: Record<string, number> = {};
+    for (const t of sellerTargets) {
+      if (t.principal !== activePrinc || !inScope(t.company)) continue;
+      const k = `${t.company}|${t.seller}`;
+      sellerTarget[k] = (sellerTarget[k] ?? 0) + t.target;
+    }
+    const branchPrev: Record<string, number> = {};
+    const sellerBase: Record<string, number> = {};
+    let prev = 0;
+    for (const r of prevDetail) {
+      if (r.principal !== activePrinc || !inScope(r.company)) continue;
+      prev += r[metric];
+      branchPrev[r.branch || '-'] = (branchPrev[r.branch || '-'] ?? 0) + r[metric];
+      const k = `${r.company}|${r.seller}`;
+      sellerBase[k] = (sellerBase[k] ?? 0) + r[metric];
+    }
+
     // แต่ละสาขา: ยอดรวม + เซลล์ในสาขานั้น (เรียงยอดมาก → น้อย)
     const branches = rankBy(list, (r) => r.branch || '-', (r) => r[metric])
       .sort((a, b) => b.value - a.value || branchRank(a.key) - branchRank(b.key))
       .map((b) => ({
         ...b,
+        giv: b.rows.reduce((s, r) => s + r.giv, 0),
+        target: branchTarget[b.key] ?? 0,
+        base: branchPrev[b.key] ?? 0,
         sellers: rankBy(b.rows, (r) => `${r.company}|${r.seller}`, (r) => r[metric]).map((s) => ({
           ...s, company: s.rows[0].company, seller: s.rows[0].seller, name: sellerNames[s.rows[0].seller] ?? '',
+          giv: s.rows.reduce((t, r) => t + r.giv, 0),
+          target: sellerTarget[s.key] ?? 0,
+          base: sellerBase[s.key] ?? 0,
         })),
       }));
     const sellers = rankBy(list, (r) => `${r.company}|${r.seller}`, (r) => r[metric]).map((s) => {
@@ -103,8 +150,8 @@ export default function CompanyShare({ rows, companies, detail, sellerNames = {}
       const branch = rankBy(s.rows, (r) => r.branch || '-', (r) => r[metric])[0]?.key ?? '-';
       return { ...s, company: r0.company, seller: r0.seller, name: sellerNames[r0.seller] ?? '', branch };
     });
-    return { sum, branches, sellers };
-  }, [activePrinc, detail, selDetail, metric, sellerNames]);
+    return { sum, giv, branches, sellers, target, prev };
+  }, [activePrinc, detail, selDetail, metric, sellerNames, targets, sellerTargets, prevDetail, companies, sel]);
 
   const openPrinc = (p: string) => {
     if (!detail) return;
@@ -125,6 +172,24 @@ export default function CompanyShare({ rows, companies, detail, sellerNames = {}
   }));
 
   const label = metric.toUpperCase();
+  // ตัวเลขประกอบในการ์ดบริษัท: Target (GIV) · ปีก่อน · ยอดขายเฉลี่ย = ยอด ÷ จำนวนเดือน ÷ จำนวนเซลล์
+  const statOf = (cos: string[], value: number) => {
+    const target = cos.reduce((s, c) => s + (coStats[c]?.target ?? 0), 0);
+    const prev = cos.reduce((s, c) => s + (coStats[c]?.prev[metric] ?? 0), 0);
+    const sellers = cos.reduce((s, c) => s + (coStats[c]?.sellers ?? 0), 0);
+    return { target, prev, sellers, avg: sellers && nMonths ? value / nMonths / sellers : null };
+  };
+  const tileStats = (cos: string[], value: number) => {
+    const s = statOf(cos, value);
+    const yPct = hasPrev && s.prev ? (value / s.prev) * 100 : null;
+    return (
+      <span className="tile-stats">
+        {metric === 'giv' && <span><i>Target</i><b>{s.target ? fmtShort(s.target) : '–'}</b><em>{s.target ? `${((value / s.target) * 100).toFixed(1)}%` : ''}</em></span>}
+        <span title={baseLabel || prevLabel}><i>Base</i><b>{hasPrev ? fmtShort(s.prev) : '–'}</b><em className={yPct == null ? '' : yPct >= 100 ? 'up' : 'down'}>{yPct == null ? '' : `${yPct.toFixed(1)}%`}</em></span>
+        <span title={`${label} ÷ ${nMonths} เดือน ÷ ${s.sellers} เซลล์`}><i>ยอดขายเฉลี่ย</i><b>{s.avg == null ? '–' : fmtShort(s.avg)}</b><em>คน/ด.</em></span>
+      </span>
+    );
+  };
   const barColor = sel === ALL ? '#1F66E5' : COMPANY_COLORS[sel];
   const pctOf = (v: number, base: number) => (base ? `${((v / base) * 100).toFixed(1)}%` : '–');
 
@@ -133,7 +198,7 @@ export default function CompanyShare({ rows, companies, detail, sellerNames = {}
       <header className="card-head">
         <div>
           <h3 className="card-title">สัดส่วนยอดขาย</h3>
-          <p className="card-sub">เลือกบริษัท → กด Principal เพื่อดูว่าสาขาไหน / เซลล์คนไหนขายดีที่สุด</p>
+          <p className="card-sub">เลือกบริษัท → กด Principal เพื่อดูว่าสาขาไหน / เซลล์คนไหนขายดีที่สุด · ยอดขายเฉลี่ย = ยอด ÷ {nMonths} เดือน ÷ จำนวนเซลล์</p>
         </div>
         <div className="seg" role="tablist" aria-label="ตัวชี้วัด">
           {(['giv', 'niv'] as Metric[]).map((m) => (
@@ -177,6 +242,7 @@ export default function CompanyShare({ rows, companies, detail, sellerNames = {}
             <span className="tile-name">ทั้งหมด</span>
             <span className="tile-val">{fmtShort(total)}</span>
             <span className="tile-meta">100% · {rows.length} เซลล์</span>
+            {tileStats(companies, total)}
           </button>
           {slices.map((s) => (
             <button key={s.company} type="button" className={`tile ${sel === s.company ? 'on' : ''}`}
@@ -185,6 +251,7 @@ export default function CompanyShare({ rows, companies, detail, sellerNames = {}
               <span className="tile-val">{fmtShort(s.value)}</span>
               <span className="tile-meta">{s.pct.toFixed(1)}% · {s.sellers} เซลล์</span>
               <span className="tile-share"><span style={{ width: `${s.pct}%`, background: COMPANY_COLORS[s.company] }} /></span>
+              {tileStats([s.company], s.value)}
             </button>
           ))}
         </div>
@@ -266,46 +333,95 @@ export default function CompanyShare({ rows, companies, detail, sellerNames = {}
             <div className="drill-kpi">
               <span className="eyebrow">ครอบคลุม</span>
               <b>{drill.branches.length} สาขา · {drill.sellers.length} เซลล์</b>
-              <span className="muted">เฉลี่ย {fmtShort(drill.sellers.length ? drill.sum / drill.sellers.length : 0)} / เซลล์</span>
+              <span className="muted">ทั้ง {sel === ALL ? 'ทุกบริษัท' : sel}</span>
+            </div>
+            {/* Target (ปีนี้) / Base (ปีก่อนทั้งเดือน) / ยอดขายเฉลี่ย ของ Principal นี้ */}
+            <div className="drill-kpi">
+              <span className="eyebrow">Target ปีนี้ (GIV)</span>
+              <b>{drill.target ? fmtInt(drill.target) : '–'}</b>
+              <span className="muted">{drill.target ? <>ทำได้ <b className={drill.giv >= drill.target ? 'drill-up' : 'drill-down'}>{pctOf(drill.giv, drill.target)}</b> ของ Target</> : 'ไม่มี Target ในชีต'}</span>
+            </div>
+            <div className="drill-kpi">
+              <span className="eyebrow">Base ปีก่อน ({label})</span>
+              <b>{hasPrev && drill.prev ? fmtInt(drill.prev) : '–'}</b>
+              <span className="muted">{hasPrev && drill.prev ? <>ทำได้ <b className={drill.sum >= drill.prev ? 'drill-up' : 'drill-down'}>{pctOf(drill.sum, drill.prev)}</b> ของ Base · {baseLabel}</> : 'ไม่มีข้อมูล'}</span>
+            </div>
+            <div className="drill-kpi">
+              <span className="eyebrow">ยอดขายเฉลี่ย</span>
+              <b>{drill.sellers.length ? fmtInt(drill.sum / Math.max(nMonths, 1) / drill.sellers.length) : '–'}</b>
+              <span className="muted">{label} ÷ {nMonths} เดือน ÷ {drill.sellers.length} เซลล์</span>
             </div>
           </div>
 
-          {/* ── แยกตามสาขา: หัวสาขา (ยอดรวม / %) แล้วตามด้วยเซลล์ในสาขานั้น ── */}
+          {/* ── แยกตามสาขา: 1 ตารางต่อสาขา · แถวแรก = รวมสาขา · ถัดไป = เซลล์ในสาขานั้น ── */}
           <span className="eyebrow">ยอดตามสาขา · เซลล์ในแต่ละสาขา</span>
-          <div className="drill-branches">
+          <p className="drill-note">
+            <b>Target</b> = เป้าปีนี้จากชีต (GIV) · <b>Base</b> = ยอดปีก่อนทั้งเดือน ({baseLabel}) · <b>MTD</b> = ยอดปีนี้ถึงวันล่าสุด ·
+            <b> % vs Target</b> = MTD ÷ Target · <b>% vs Base</b> = MTD ÷ Base (เขียว = ถึง Time gone {timeGonePct.toFixed(1)}% แล้ว) ·
+            <b> Contribution</b> = ยอดของเซลล์ ÷ ยอดรวมของสาขา × 100 (ทุกคนในสาขารวมกัน = 100%) · แถวสาขา = สัดส่วนของสาขาจากยอดรวม Principal
+            {companies.includes('SDO') ? ' · Target ของเซลล์ SDO ในชีตตั้งเป็นรหัสเขต จึงจับคู่รายคนไม่ได้ (แสดง –)' : ''}
+          </p>
+          <div className="drill-branches drill-tables">
             {drill.branches.map((b, i) => {
               const open = openBranches.has(b.key);
               const shown = open ? b.sellers : b.sellers.slice(0, BRANCH_SELLERS);
+              const pc = (cur: number, base: number) => {
+                if (!base) return <span className="muted">–</span>;
+                const p = (cur / base) * 100;
+                return <b style={{ color: paceColor(p, timeGonePct) }}>{p.toFixed(1)}%</b>;
+              };
               return (
                 <div key={b.key} className={`drill-branch${i === 0 ? ' top' : ''}`}>
-                  <div className="drill-branch-head">
-                    <span className={`drill-rank${i === 0 ? ' gold' : ''}`}>{i + 1}</span>
-                    <span className="drill-main">
-                      <span className="drill-row">
-                        <span><b className="drill-branch-name">{b.key}</b> <span className="muted">· {b.sellers.length} เซลล์</span></span>
-                        <span className="drill-val"><b>{fmtInt(b.value)}</b> <span className="muted">{pctOf(b.value, drill.sum)}</span></span>
-                      </span>
-                      <span className="princ-bar"><span style={{ width: `${Math.max((b.value / (drill.branches[0]?.value || 1)) * 100, 0)}%`, background: barColor }} /></span>
-                    </span>
-                  </div>
-                  <ol className="drill-list">
-                    {shown.map((s, j) => (
-                      <li key={s.key}>
-                        <span className="drill-rank sm">{j + 1}</span>
-                        <span className="drill-row">
-                          <span className="drill-seller">
-                            <b>
-                              {s.name || withType(s.seller)}
-                              {s.key === topSellerKey && <span className="drill-top">🏆 Top</span>}
-                            </b>
-                            {/* ไม่มีชื่อในชีต (เช่นรหัส SDO ย่อย) → บรรทัดบนเป็นรหัสแล้ว บรรทัดล่างบอกบริษัทแทน */}
-                            <span className="muted"><span className="dot" style={{ background: COMPANY_COLORS[s.company] }} />{s.name ? withType(s.seller) : s.company}</span>
+                  <table className="rtable drill-table">
+                    <thead>
+                      <tr>
+                        <th>เซลล์</th>
+                        <th className="r">Target</th>
+                        <th className="r">Base</th>
+                        <th className="r">MTD ({label})</th>
+                        <th className="r">% vs Target</th>
+                        <th className="r">% vs Base</th>
+                        <th className="r">Contribution</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="drill-branch-row">
+                        <td>
+                          <span className="drill-bname">
+                            <span className={`drill-rank${i === 0 ? ' gold' : ''}`}>{i + 1}</span>
+                            <b>{b.key}</b><span className="muted"> · {b.sellers.length} เซลล์</span>
                           </span>
-                          <span className="drill-val"><b>{fmtInt(s.value)}</b> <span className="muted">{pctOf(s.value, b.value)}</span></span>
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
+                        </td>
+                        <td className="r" data-label="Target">{b.target ? fmtInt(b.target) : '–'}</td>
+                        <td className="r" data-label="Base">{hasPrev && b.base ? fmtInt(b.base) : '–'}</td>
+                        <td className="r strong" data-label={`MTD (${label})`}>{fmtInt(b.value)}</td>
+                        <td className="r" data-label="% vs Target">{pc(b.giv, b.target)}</td>
+                        <td className="r" data-label="% vs Base">{hasPrev ? pc(b.value, b.base) : '–'}</td>
+                        <td className="r" data-label="Contribution" title="สัดส่วนของสาขาจากยอดรวม Principal">{pctOf(b.value, drill.sum)}</td>
+                      </tr>
+                      {shown.map((s) => (
+                        <tr key={s.key}>
+                          <td>
+                            <span className="drill-seller">
+                              <b>
+                                {s.name || withType(s.seller)}
+                                {s.key === topSellerKey && <span className="drill-top">🏆 Top</span>}
+                              </b>
+                              <span className="muted"><span className="dot" style={{ background: COMPANY_COLORS[s.company] }} />{withType(s.seller)}</span>
+                            </span>
+                          </td>
+                          <td className="r" data-label="Target">{s.target ? fmtInt(s.target) : '–'}</td>
+                          <td className="r" data-label="Base">{hasPrev && s.base ? fmtInt(s.base) : '–'}</td>
+                          <td className="r strong" data-label={`MTD (${label})`}>{fmtInt(s.value)}</td>
+                          <td className="r" data-label="% vs Target">{pc(s.giv, s.target)}</td>
+                          <td className="r" data-label="% vs Base">{hasPrev ? pc(s.value, s.base) : '–'}</td>
+                          <td className="r" data-label="Contribution">
+                            <span className="drill-contrib"><span className="princ-bar"><span style={{ width: `${Math.max(b.value ? (s.value / b.value) * 100 : 0, 0)}%`, background: barColor }} /></span><b>{pctOf(s.value, b.value)}</b></span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                   {b.sellers.length > BRANCH_SELLERS && (
                     <button type="button" className="clear-btn drill-more" onClick={() => toggleBranch(b.key)}>
                       {open ? 'ย่อ' : `ดูทั้งหมด ${b.sellers.length} คน`}

@@ -51,7 +51,7 @@ export default async function TeamSalesPage({
   }
 
   const rangeMonths = months.filter((m) => m >= fromYM && m <= toYM);
-  const tg = latestDate ? timeGone(rangeMonths, latestDate) : { elapsed: 0, total: 0, pct: 0 };
+  const tg = timeGone(rangeMonths);
   const rangeLabel = fromYM ? formatRange(fromYM, toYM) : '';
 
   return (

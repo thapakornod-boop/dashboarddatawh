@@ -330,6 +330,59 @@ export function getStoreSales(keys: string[], from: string, to: string): Promise
   });
 }
 
+// ── ตัวชี้วัดรายเซลล์ + ร้านเครดิต (supabase/seller_kpi.sql) · ยังไม่ได้รัน SQL → null ──
+export type SellerKpi = {
+  company: string; seller: string; workDays: number; bills: number; lines: number; linesGt1: number;
+  stores: number; giv: number; niv: number;
+};
+export function getSellerKpi(from: string, to: string): Promise<SellerKpi[] | null> {
+  return cached(`skpi|${from}|${to}`, async () => {
+    try {
+      const rows = await rpc<{ company_code: string; seller: string; work_days: number; bills: number; lines: number; lines_gt1: number; stores: number; giv: number; niv: number }>(
+        'dashboard_kpi_seller', { p_from: from, p_to: to }
+      );
+      return rows.map((r) => ({
+        company: r.company_code, seller: r.seller, workDays: Number(r.work_days), bills: Number(r.bills), lines: Number(r.lines),
+        linesGt1: Number(r.lines_gt1), stores: Number(r.stores), giv: Number(r.giv), niv: Number(r.niv),
+      }));
+    } catch (err) {
+      if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+      if (err instanceof Error && /57014|statement timeout/.test(err.message)) { memo.delete(`skpi|${from}|${to}`); return null; }
+      throw err;
+    }
+  });
+}
+
+// ร้านเครดิต: สรุปรายเซลล์ × เดือน (ym = 'ALL' คือทั้งช่วง: stores = ร้านไม่ซ้ำ, repeatStores = ร้านที่ซื้อทุกเดือน)
+export type CreditRow = { company: string; seller: string; ym: string; stores: number; repeatStores: number; giv: number; niv: number; bills: number };
+export function getCreditSummary(keys: string[], from: string, to: string): Promise<CreditRow[] | null> {
+  return cached(`credit|${keys.join(',')}|${from}|${to}`, async () => {
+    try {
+      const rows = await rpc<{ company_code: string; seller: string; ym: string; stores: number; repeat_stores: number; giv: number; niv: number; bills: number }>(
+        'credit_summary', { p_keys: keys, p_from: from, p_to: to }
+      );
+      return rows.map((r) => ({
+        company: r.company_code, seller: r.seller, ym: r.ym, stores: Number(r.stores), repeatStores: Number(r.repeat_stores),
+        giv: Number(r.giv), niv: Number(r.niv), bills: Number(r.bills),
+      }));
+    } catch (err) {
+      if (err instanceof Error && /PGRST202|: 404 /.test(err.message)) return null;
+      throw err;
+    }
+  });
+}
+
+// ร้านของเซลล์คนหนึ่ง รายร้าน × เดือน
+export type CreditStoreRow = { cardcode: string; name: string; ym: string; giv: number; niv: number; bills: number };
+export function getCreditSellerStores(company: string, seller: string, from: string, to: string): Promise<CreditStoreRow[]> {
+  return cached(`creditst|${company}|${seller}|${from}|${to}`, async () => {
+    const rows = await rpc<{ cardcode: string; card_name: string | null; ym: string; giv: number; niv: number; bills: number }>(
+      'credit_seller_stores', { p_company: company, p_seller: seller, p_from: from, p_to: to }
+    );
+    return rows.map((r) => ({ cardcode: r.cardcode, name: r.card_name ?? '', ym: r.ym, giv: Number(r.giv), niv: Number(r.niv), bills: Number(r.bills) }));
+  });
+}
+
 // ── หน้าสถานะระบบ (supabase/security.sql) · ยังไม่ได้รัน SQL → null ──
 export type CronJob = {
   jobname: string; schedule: string; active: boolean;

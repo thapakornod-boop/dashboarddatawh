@@ -6,12 +6,14 @@ import {
   type StoreHit, type StoreMonthRow, type StoreSalesRow,
 } from '@/app/lib/api';
 import { requireEmployee } from '@/app/lib/session';
+import { lastYear } from '@/app/lib/scorecard';
 import { COMPANY_ORDER, companyFromParams, formatDate, formatRange, rangeFromParams } from '@/app/lib/period';
 import { COMPANY_COLORS, fmtInt, fmtShort } from '@/app/lib/format';
 import { LoadingDone } from '@/app/components/Loading';
 import StoreSearch from '@/app/components/StoreSearch';
 import LoadingLink from '@/app/components/LoadingLink';
 import StoreTrend, { type TrendMonth } from '@/app/components/StoreTrend';
+import StoreFigures from '@/app/components/StoreFigures';
 import { Hero, RangeFilter } from '../parts';
 
 type Group = { key: string; rsmcode: string | null; stores: StoreHit[] };
@@ -27,6 +29,9 @@ function groupHits(hits: StoreHit[]): Group[] {
   }
   return [...map.values()];
 }
+
+// ตารางรายละเอียด บริษัท × รหัสร้าน × Princ — ซ่อนไว้ก่อนตามที่ผู้บริหารขอ
+const SHOW_DETAIL = false;
 
 const str = (v: string | string[] | undefined) => (typeof v === 'string' ? v.trim() : '');
 const sum = (rows: { giv: number; niv: number; bills: number }[]) =>
@@ -54,6 +59,7 @@ export default async function StoreSalesPage({
   let selected: Group | null = null;
   let sales: StoreSalesRow[] = [];
   let monthly: StoreMonthRow[] | null = null;
+  let monthlyPrev: StoreMonthRow[] | null = null; // ช่วงเดียวกันของปีก่อน (ถึงวันเดียวกัน)
   // ยังไม่ได้ค้น → แสดงร้านตัวอย่าง (ยอดสูงสุดของวันล่าสุด) ให้ดูก่อน
   let examples: (StoreHit & { giv: number })[] = [];
   let isExample = false;
@@ -80,9 +86,11 @@ export default async function StoreSalesPage({
       if (selected) {
         const keys = selected.stores.filter((s) => companies.includes(s.company)).map((s) => `${s.company}|${s.cardcode}`);
         if (keys.length) {
-          [sales, monthly] = await Promise.all([
+          const prev = lastYear({ from: `${fromYM}-01`, to: rangeEnd });
+          [sales, monthly, monthlyPrev] = await Promise.all([
             getStoreSales(keys, `${fromYM}-01`, rangeEnd),
             getStoreMonthly(keys, `${fromYM}-01`, rangeEnd),
+            getStoreMonthly(keys, prev.from, prev.to).catch(() => null),
           ]);
         }
       }
@@ -104,7 +112,6 @@ export default async function StoreSalesPage({
   const byPrinc = [...sales.reduce((m, r) => m.set(r.principal, [...(m.get(r.principal) ?? []), r]), new Map<string, StoreSalesRow[]>())]
     .map(([p, rows]) => ({ p, companies: [...new Set(rows.map((r) => r.company))], ...sum(rows) }))
     .sort((a, b) => b.giv - a.giv);
-  const maxPrinc = Math.max(...byPrinc.map((x) => x.giv), 1);
 
   const rangeMonths = months.filter((m) => m >= fromYM && m <= toYM);
   const trend: TrendMonth[] = rangeMonths.map((ym) => {
@@ -122,6 +129,10 @@ export default async function StoreSalesPage({
   const lastBuy = (monthly ?? []).map((r) => r.lastD).filter(Boolean).sort().at(-1) ?? null;
   const daysSince = lastBuy ? Math.round((Date.parse(latestDate) - Date.parse(lastBuy)) / 86_400_000) : null;
   const pct = (v: number) => (total.giv ? `${((v / total.giv) * 100).toFixed(1)}%` : '–');
+  // ── เฉลี่ยต่อเดือน / เทียบปีก่อน (YAGO) / ตารางรายเดือน ──
+  const nMonths = Math.max(rangeMonths.length, 1);
+  const prevTotal = (monthlyPrev ?? []).reduce((s, r) => s + r.giv, 0);
+  const avgGiv = total.giv / nMonths;
   const storeName = selected ? nameOf(selected) : '';
   // บิลรวมของบริษัท: นับจากยอดรายเดือน (บิลเดียวหลาย Princ ไม่นับซ้ำ) ถ้ามี
   const coBills = (company: string, fallback: number) =>
@@ -254,70 +265,25 @@ export default async function StoreSalesPage({
               <section className="card"><p className="empty">ไม่มียอดขายในช่วงที่เลือก{companyFilter !== 'all' ? ` (บริษัท ${companyFilter})` : ''}</p></section>
             ) : (
               <>
-                {/* ── KPI ── */}
-                <section className="st-kpis">
-                  <div className="st-kpi st-kpi-main">
-                    <span className="eyebrow">GIV รวม</span>
-                    <span className="st-kpi-val">{fmtInt(total.giv)}</span>
-                    <span className="st-kpi-cap">เฉลี่ย {fmtInt(total.giv / Math.max(rangeMonths.length, 1))} / เดือน</span>
-                  </div>
-                  <div className="st-kpi">
-                    <span className="eyebrow">NIV รวม</span>
-                    <span className="st-kpi-val">{fmtInt(total.niv)}</span>
-                    <span className="st-kpi-cap">ส่วนลด {total.giv ? `${(((total.giv - total.niv) / total.giv) * 100).toFixed(1)}%` : '–'} ของ GIV</span>
-                  </div>
-                  <div className="st-kpi">
-                    <span className="eyebrow">จำนวนบิล</span>
-                    <span className="st-kpi-val">{fmtInt(bills)}</span>
-                    <span className="st-kpi-cap">ซื้อ {activeMonths || '–'} จาก {rangeMonths.length} เดือน</span>
-                  </div>
-                  <div className="st-kpi">
-                    <span className="eyebrow">เฉลี่ยต่อบิล</span>
-                    <span className="st-kpi-val">{bills ? fmtInt(total.giv / bills) : '–'}</span>
-                    <span className="st-kpi-cap">{byPrinc.length} Princ · {byCo.length} บริษัท</span>
-                  </div>
-                </section>
+                {/* ── KPI + ซื้อ Princ อะไรบ้าง (สลับ ยอดรวม / เฉลี่ยต่อเดือน ได้) ── */}
+                <StoreFigures
+                  giv={total.giv} niv={total.niv} bills={bills} prevGiv={prevTotal} nMonths={nMonths}
+                  activeMonths={monthly ? activeMonths : null} rangeLabel={rangeLabel}
+                  princs={byPrinc.map((x) => ({ p: x.p, companies: x.companies, giv: x.giv }))}
+                  cos={byCo.map((c) => ({ company: c.company, giv: c.giv }))}
+                  chart={
+                    <section className="card">
+                      <h3 className="card-title">GIV รายเดือน</h3>
+                      <p className="card-sub">ชี้ / แตะที่แท่งเพื่อดูยอด{byCo.length > 1 ? ' · สีตามบริษัท' : ''} · เส้นประ = เฉลี่ยต่อเดือน {fmtShort(avgGiv)}</p>
+                      {monthly ? <StoreTrend months={trend} companies={byCo.map((c) => c.company)} avg={avgGiv} />
+                        : <p className="empty">รอข้อมูลรายเดือน — รัน supabase/store_monthly.sql ใน Supabase ก่อน</p>}
+                    </section>
+                  }
+                />
 
-                <div className="grid-2 st-grid">
-                  {/* ── แนวโน้มรายเดือน ── */}
-                  <section className="card">
-                    <h3 className="card-title">GIV รายเดือน</h3>
-                    <p className="card-sub">ชี้ / แตะที่แท่งเพื่อดูยอด{byCo.length > 1 ? ' · สีตามบริษัท' : ''}</p>
-                    {monthly ? <StoreTrend months={trend} companies={byCo.map((c) => c.company)} />
-                      : <p className="empty">รอข้อมูลรายเดือน — รัน supabase/store_monthly.sql ใน Supabase ก่อน</p>}
-                  </section>
-
-                  {/* ── สัดส่วน Princ / บริษัท ── */}
-                  <section className="card">
-                    <h3 className="card-title">ซื้อ Princ อะไรบ้าง</h3>
-                    <p className="card-sub">เรียงตาม GIV · % = สัดส่วนจากยอดรวมของร้าน</p>
-                    {byCo.length > 1 && (
-                      <div className="st-split" role="img" aria-label={byCo.map((c) => `${c.company} ${pct(c.giv)}`).join(', ')}>
-                        <div className="st-split-bar">
-                          {byCo.map((c) => <span key={c.company} style={{ flexGrow: Math.max(c.giv, 0), background: COMPANY_COLORS[c.company] }} />)}
-                        </div>
-                        <div className="st-split-legend">
-                          {byCo.map((c) => (
-                            <span key={c.company}><i style={{ background: COMPANY_COLORS[c.company] }} />{c.company} <b>{pct(c.giv)}</b> <span className="muted">{fmtShort(c.giv)}</span></span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <ul className="st-princ">
-                      {byPrinc.map((x) => (
-                        <li key={x.p}>
-                          <div className="st-princ-head">
-                            <span className="st-princ-name">{x.p}<span className="muted"> · {x.companies.join(' / ')}</span></span>
-                            <span><b>{fmtInt(x.giv)}</b> <span className="st-princ-pct">{pct(x.giv)}</span></span>
-                          </div>
-                          <span className="st-princ-track"><span style={{ width: `${Math.max((x.giv / maxPrinc) * 100, 0)}%` }} /></span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                </div>
-
-                {/* ── ตารางรายละเอียด ── */}
+                {/* ── ตารางรายละเอียด บริษัท × รหัสร้าน × Princ: ซ่อนไว้ก่อน (เปิดด้วย SHOW_DETAIL) ── */}
+                {SHOW_DETAIL && (
+                  <>
                 <section className="card">
                   <h3 className="card-title">รายละเอียด บริษัท × รหัสร้าน × Princ</h3>
                   <table className="rtable store-table">
@@ -367,6 +333,8 @@ export default async function StoreSalesPage({
                     </tfoot>
                   </table>
                 </section>
+                  </>
+                )}
               </>
             )}
           </>

@@ -33,6 +33,14 @@ function IconStore() {
   );
 }
 
+function IconCredit() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="M3 10h18M7 15h4" />
+    </svg>
+  );
+}
 function IconPulse() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -46,6 +54,7 @@ const ITEMS = [
   { href: '/dashboard', label: 'ภาพรวมยอดขาย', icon: <IconChart /> },
   { href: '/dashboard/team', label: 'ยอดขายรายทีม', icon: <IconTeam /> },
   { href: '/dashboard/stores', label: 'ยอดขายรายร้าน', icon: <IconStore /> },
+  { href: '/dashboard/credit', label: 'ร้านเครดิต', icon: <IconCredit /> },
   { href: '/dashboard/status', label: 'สถานะระบบ', icon: <IconPulse />, admin: true },
 ];
 

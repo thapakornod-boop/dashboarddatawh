@@ -16,9 +16,10 @@ function niceMax(v: number) {
   return n * 4;
 }
 
-export default function StoreTrend({ months, companies }: { months: TrendMonth[]; companies: string[] }) {
+// avg = เส้นประค่าเฉลี่ยต่อเดือน (ไม่ใส่ = ไม่แสดง)
+export default function StoreTrend({ months, companies, avg }: { months: TrendMonth[]; companies: string[]; avg?: number }) {
   const [hover, setHover] = useState<number | null>(null);
-  const max = niceMax(Math.max(...months.map((m) => m.total), 0));
+  const max = niceMax(Math.max(...months.map((m) => m.total), avg ?? 0, 0));
   const ticks = [0, 1, 2, 3, 4].map((i) => (max / 4) * i);
   const h = hover !== null ? months[hover] : null;
   const multiYear = new Set(months.map((m) => m.ym.slice(0, 4))).size > 1;
@@ -36,6 +37,9 @@ export default function StoreTrend({ months, companies }: { months: TrendMonth[]
             <div key={t} className="tc-gridline"><span>{t ? fmtShort(t) : '0'}</span></div>
           ))}
         </div>
+        {avg != null && avg > 0 && (
+          <div className="tc-avg" style={{ bottom: `calc(24px + (100% - 24px) * ${Math.min(avg / max, 1)})` }} aria-hidden="true"><span>เฉลี่ย</span></div>
+        )}
         <div className="tc-cols">
           {months.map((m, i) => (
             <button key={m.ym} type="button" className={`tc-col${hover === i ? ' on' : ''}`}
