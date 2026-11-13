@@ -52,7 +52,13 @@ function addSheet(wb: Workbook, sh: XSheet) {
     properties: { defaultRowHeight: 20 },
     pageSetup: { orientation: n > 8 ? 'landscape' : 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 },
   });
-  ws.columns = sh.cols.map((c) => ({ width: c.width ?? Math.max(12, c.header.length + 4) }));
+  // ชีตใหญ่ (เกิน 20,000 แถว เช่นร้านทั้งหมดหลายเดือน): แถวข้อมูลใส่แค่ค่า ใช้ฟอนต์ / รูปแบบตัวเลขของคอลัมน์ ไม่แต่งทีละช่อง
+  //   ไม่งั้นทำไฟล์นานและกินหน่วยความจำมาก — ตั้งตอนสร้างคอลัมน์ (ก่อนเขียนหัว) หัวตารางจะได้ไม่ถูกทับ
+  const light = sh.rows.length > 20000;
+  ws.columns = sh.cols.map((c) => ({
+    width: c.width ?? Math.max(12, c.header.length + 4),
+    ...(light ? { style: { font: { name: FONT, size: 10 }, ...(c.fmt && FMT[c.fmt] ? { numFmt: FMT[c.fmt] } : {}) } } : {}),
+  }));
   // คอลัมน์แรกใช้เป็นป้ายข้อมูลด้านบนด้วย (ช่วงเดือน / Export เมื่อ) → กว้างพอให้อ่านครบ
   ws.getColumn(1).width = Math.max(ws.getColumn(1).width ?? 0, 14);
 
@@ -132,10 +138,15 @@ function addSheet(wb: Workbook, sh: XSheet) {
       cell.fill = solid(kind === 'total' ? BRAND_100 : kind === 'band' ? BRAND_50 : zebra ? ZEBRA : 'FFFFFFFF');
     });
   };
-  sh.rows.forEach((row, i) => {
-    r += 1;
-    paint(r, row, sh.band?.(row) ? 'band' : 'data', i % 2 === 1);
-  });
+  if (light) {
+    ws.addRows(sh.rows.map((row) => row.map((v, i) => (sh.cols[i]?.fmt === 'pct' && typeof v === 'number' ? v / 100 : v))));
+    r += sh.rows.length;
+  } else {
+    sh.rows.forEach((row, i) => {
+      r += 1;
+      paint(r, row, sh.band?.(row) ? 'band' : 'data', i % 2 === 1);
+    });
+  }
   const lastData = r;
   if (sh.total) {
     r += 1;
