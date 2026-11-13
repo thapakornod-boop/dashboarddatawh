@@ -551,7 +551,9 @@ export default async function SalesOverviewPage({
   const sellerChannels: Record<string, string> = {}; // ประเภทเซลล์ตามคอลัมน์ Channel ในชีต เช่น VAN / CREDIT / PRESALE
   const sheetBranch: Record<string, string> = {};
   for (const t of [...targetRows].sort((a, b) => a.ym.localeCompare(b.ym))) {
-    if (t.name) sellerNames[t.seller] = t.name;
+    // รหัสเดียวกันใช้คนละบริษัทได้ (เช่น RCR001 DC = KHA คนหนึ่ง · PDC = AST/ULT/PRA อีกคน) → เก็บแยก "บริษัท|เซลล์" ด้วย
+    const co = normalizeCompany(t.company);
+    if (t.name) { sellerNames[`${co}|${t.seller}`] = t.name; sellerNames[t.seller] ??= t.name; }
     if (t.channel) sellerChannels[t.seller] = t.channel.toUpperCase();
     if (t.branch && normalizeCompany(t.company) !== 'SDO') {
       sheetBranch[`${t.seller}|${t.principal}`] = t.branch;

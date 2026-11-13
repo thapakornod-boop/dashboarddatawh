@@ -140,7 +140,7 @@ export default function CompanyShare({
         target: branchTarget[b.key] ?? 0,
         base: branchPrev[b.key] ?? 0,
         sellers: rankBy(b.rows, (r) => `${r.company}|${r.seller}`, (r) => r[metric]).map((s) => ({
-          ...s, company: s.rows[0].company, seller: s.rows[0].seller, name: sellerNames[s.rows[0].seller] ?? '',
+          ...s, company: s.rows[0].company, seller: s.rows[0].seller, name: sellerNames[`${s.rows[0].company}|${s.rows[0].seller}`] ?? sellerNames[s.rows[0].seller] ?? '',
           giv: s.rows.reduce((t, r) => t + r.giv, 0),
           target: sellerTarget[s.key] ?? 0,
           base: sellerBase[s.key] ?? 0,
@@ -149,7 +149,7 @@ export default function CompanyShare({
     const sellers = rankBy(list, (r) => `${r.company}|${r.seller}`, (r) => r[metric]).map((s) => {
       const r0 = s.rows[0];
       const branch = rankBy(s.rows, (r) => r.branch || '-', (r) => r[metric])[0]?.key ?? '-';
-      return { ...s, company: r0.company, seller: r0.seller, name: sellerNames[r0.seller] ?? '', branch };
+      return { ...s, company: r0.company, seller: r0.seller, name: sellerNames[`${r0.company}|${r0.seller}`] ?? sellerNames[r0.seller] ?? '', branch };
     });
     return { sum, giv, branches, sellers, target, prev };
   }, [activePrinc, detail, selDetail, metric, sellerNames, targets, sellerTargets, prevDetail, companies, sel]);

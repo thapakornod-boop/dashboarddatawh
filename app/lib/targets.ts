@@ -31,6 +31,10 @@ const CACHE_MS = 5 * 60 * 1000;
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 let cache: { at: number; byMonth: Map<string, TargetRow[]> } | null = null;
+// ชุดล่าสุดที่อ่านได้ปกติ — ถ้ารอบไหนอ่านชีตได้ไม่ครบ (ชีตกำลังคำนวณสูตร / Google ตอบผิด) ใช้ชุดนี้แทน
+let lastGood: Map<string, TargetRow[]> | null = null;
+const RETRY_MS = 30 * 1000;
+const sumTarget = (rows: TargetRow[] | undefined) => (rows ?? []).reduce((s, r) => s + r.target, 0);
 let loading: Promise<Map<string, TargetRow[]>> | null = null;
 
 function parseCsv(text: string) {
@@ -232,8 +236,18 @@ let sheetUpdatedAt = '';
 async function allTargets() {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.byMonth;
   loading ??= loadAll()
-    .then((byMonth) => {
-      cache = { at: Date.now(), byMonth };
+    .then((fresh) => {
+      // เดือนที่เคยมี Target แต่รอบนี้หายไป หรือ Target รวมเป็น 0 → ใช้ข้อมูลชุดก่อน แล้วลองอ่านใหม่ใน 30 วินาที
+      const byMonth = new Map(fresh);
+      let degraded = false;
+      for (const [ym, rows] of lastGood ?? []) {
+        if (sumTarget(rows) > 0 && sumTarget(byMonth.get(ym)) === 0) {
+          byMonth.set(ym, rows);
+          degraded = true;
+        }
+      }
+      if (!degraded) lastGood = byMonth;
+      cache = { at: degraded ? Date.now() - CACHE_MS + RETRY_MS : Date.now(), byMonth };
       return byMonth;
     })
     .finally(() => {

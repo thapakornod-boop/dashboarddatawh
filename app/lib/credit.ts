@@ -41,10 +41,12 @@ export async function loadCreditSellers(opts: {
   const channels: Record<string, string> = {};
   const names: Record<string, string> = {};
   const branches: Record<string, string> = {};
+  // รหัสเดียวกันใช้คนละบริษัทได้ (เช่น RCR001 / KCR001: DC = KHA คนหนึ่ง · PDC = อีกคน) → ชื่อ / สาขาเก็บแยก "บริษัท|เซลล์"
   for (const t of [...targets.rows].sort((a, b) => a.ym.localeCompare(b.ym))) {
+    const k = `${normalizeCompany(t.company)}|${t.seller}`;
     if (t.channel) channels[t.seller] = t.channel;
-    if (t.name) names[t.seller] = t.name;
-    if (t.branch) branches[t.seller] = t.branch;
+    if (t.name) names[k] = t.name;
+    if (t.branch) branches[k] = t.branch;
   }
   const credit = block.bySeller
     .map((r) => ({ company: normalizeCompany(r.Company), seller: r.Seller, princ: r.Company === 'SDO' ? 'P&G' : r.Princ ?? '' }))
@@ -59,7 +61,7 @@ export async function loadCreditSellers(opts: {
     let s = byKey.get(key);
     if (!s) {
       byKey.set(key, (s = {
-        key, company: r.company, seller: r.seller, name: names[r.seller] ?? '', branch: branches[r.seller] ?? '', princ: princOf.get(key) ?? '',
+        key, company: r.company, seller: r.seller, name: names[key] ?? '', branch: branches[key] ?? '', princ: princOf.get(key) ?? '',
         stores: 0, regular: 0, giv: 0, niv: 0, bills: 0, monthStores: 0, monthRepeat: 0, months: [],
       }));
     }
