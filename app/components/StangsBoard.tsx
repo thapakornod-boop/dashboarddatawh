@@ -5,7 +5,7 @@
 import { Fragment, useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  dayStats, hhmm, ISSUES, NEXT_ACTION, PLAN_LEVEL_LABEL, PLAN_TYPE_LABEL, PLAN_RULE, planLevel, planStandard, RULES, sellerRows, totals,
+  dayStats, hhmm, isFar, ISSUES, NEXT_ACTION, PLAN_LEVEL_LABEL, PLAN_TYPE_LABEL, PLAN_RULE, planLevel, planStandard, RULES, sellerRows, totals,
   type DayStat, type Metrics, type SellerRow, type StangsData,
 } from '@/app/lib/stangsCalc';
 import { COMPANY_COLORS, fmtInt } from '@/app/lib/format';
@@ -110,7 +110,6 @@ export default function StangsBoard({ data }: { data: StangsData }) {
   const tripEnd = useMemo(() => new Map(Object.entries(data.tripEnd)), [data.tripEnd]);
   const planStd = planStandard(from, to, tripEnd); // มาตรฐานร้านในแผนของช่วงนี้ (600 / ทริป ตามสัดส่วนวัน)
   const planOf = (r: SellerRow) => planLevel(r.plannedTrip, planStd);
-  const planCount = (lv: string[]) => rows.filter((r) => lv.includes(planOf(r).level)).length;
   const noPlan = rows.filter((r) => r.plannedTrip === 0); // เซลล์ที่ไม่มีแผนใน tab Visit (ช่วงที่เลือก)
   const picked = seller ? rows.find((r) => r.seller === seller) ?? null : null;
   const days: DayStat[] = useMemo(() => (seller ? dayStats(data, seller, from, to) : []), [data, seller, from, to]);
@@ -396,7 +395,7 @@ export default function StangsBoard({ data }: { data: StangsData }) {
       {/* ── สรุป 3 แถบ (ตามตัวกรอง) ── */}
       <Band no="01" title="KPI COMPLIANCE" tone="blue"
         items={[
-          { label: 'Planned Stores (Full Trip)', value: fmtInt(t.plannedTrip), sub: `ถึงวันข้อมูล ${fmtInt(t.plannedToDate)} · มาตรฐาน ${fmtInt(planStd)} / คน · เกิน ${planCount(['over', 'overHigh'])} คน · ต่ำกว่า ${planCount(['under', 'underLow'])} คน` },
+          { label: 'Planned Stores (Full Trip)', value: fmtInt(t.plannedTrip), sub: 'Visit Plan ทั้งหมด' },
           { label: 'Actual Visits', value: fmtInt(t.visits), sub: `ตามแผน ${fmtInt(t.planVisited)}` },
           { label: 'Plan Compliance %', value: pctText(t.planVisited, t.plannedToDate) },
           { label: 'Missed Visits', value: fmtInt(t.missed) },
@@ -409,8 +408,8 @@ export default function StangsBoard({ data }: { data: StangsData }) {
               — Planned / Plan Compliance / Missed จึงนับเฉพาะคนที่มีแผน · เติมแผนในชีตแล้วหน้านี้อัปเดตเองภายใน 5 นาที
             </span>
           )}
-          <b>Planned Stores</b> = ร้านตามแผนเยี่ยม (tab Visit) ทุกวันในช่วงที่เลือก · <b>Actual Visits</b> = จำนวนครั้งที่เข้าพบจริงทั้งหมด รวมนอกแผน (tab Compliance) ·
-          <b> Plan Compliance %</b> = ร้านในแผนที่ไปเยี่ยมจริงในวันเดียวกัน ÷ แผนถึงวันข้อมูลล่าสุด · <b>Missed Visits</b> = แผนถึงวันข้อมูลล่าสุด − ร้านในแผนที่ไปจริง ·
+          <b>Planned Stores</b> = Visit Plan ทั้งหมด (tab Visit) ทุกวันในช่วงที่เลือก · <b>Actual Visits</b> = จำนวนครั้งที่เข้าพบจริงทั้งหมด รวมนอกแผน (tab Compliance) ·
+          <b> Plan Compliance %</b> = ร้านในแผนที่ไปเยี่ยมจริงในวันเดียวกัน ÷ Visit Plan ถึงวันที่เข้าพบล่าสุด (วันที่ยังไม่ถึงไม่นับ) · <b>Missed Visits</b> = Visit Plan ถึงวันที่เข้าพบล่าสุด − ร้านในแผนที่ไปจริง ·
           <b> Adhoc</b> = เข้าพบนอกแผน (Adhoc Route = yes) ·
           <b> แผนเทียบมาตรฐาน</b> = แผนทั้งทริปของเซลล์ ÷ {fmtInt(PLAN_RULE.perTrip)} ร้าน / เดือน (ช่วงนี้ {fmtInt(planStd)} ร้าน):
           เกิน = ส้ม · เกิน ≥ {Math.round(PLAN_RULE.high * 100)}% = แดง · ต่ำกว่า = ฟ้า · ต่ำกว่า ≤ {Math.round(PLAN_RULE.low * 100)}% = ม่วง
@@ -641,14 +640,14 @@ export default function StangsBoard({ data }: { data: StangsData }) {
                                 {vs.map((v, j) => {
                                   const s = sold?.get(v.store);
                                   return (
-                                    <div key={j} className={`stg-vrow${v.comp === false || (v.dur != null && v.dur < RULES.shortVisit) ? ' warn' : ''}`}>
+                                    <div key={j} className={`stg-vrow${isFar(v) || (v.dur != null && v.dur < RULES.shortVisit) ? ' warn' : ''}`}>
                                       <span className="t">{hhmm(v.start)}–{hhmm(v.end)}</span>
                                       <span className="n">
                                         <b>{v.storeName || v.store}</b> <span className="muted">{v.store}</span>{' '}
                                         <span className={`stg-pt stg-pt-${v.pt}`}>{PLAN_TYPE_LABEL[v.pt]}</span>
                                       </span>
                                       <span className={`r ${v.dur != null && v.dur < RULES.shortVisit ? 'stg-red' : ''}`}>{v.dur ?? '–'}</span>
-                                      <span className={`r ${v.comp === false ? 'stg-red' : ''}`}>{v.diff == null ? '–' : `${fmtInt(v.diff)} ม.`}</span>
+                                      <span className={`r ${isFar(v) ? 'stg-red' : ''}`}>{v.diff == null ? '–' : `${fmtInt(v.diff)} ม.`}</span>
                                       <span className="muted">{v.status}</span>
                                       <span className="stg-sale">
                                         {!ds || ds.state === 'loading' ? <span className="muted">กำลังโหลด…</span>
@@ -699,6 +698,6 @@ const NOTES = [
   'Working Day = วันที่มีการเข้าพบจริง / วันที่มีแผนเยี่ยม (ถึงวันข้อมูลล่าสุด) · Avg Start / Finish = เข้าร้านแรก / ออกร้านสุดท้ายเฉลี่ยต่อวัน',
   'Avg Work Hours = ร้านแรก → ร้านสุดท้าย · Avg Store Hours = เวลาในร้านรวมต่อวัน',
   'Plan Compliance % = ร้านในแผนที่ไปจริงในวันเดียวกัน ÷ แผนถึงวันข้อมูลล่าสุด · Missed Visits = แผนถึงวันข้อมูลล่าสุด − ร้านในแผนที่ไปจริง',
-  `เกณฑ์: Late Start > ${hhmm(RULES.lateStart)} · Early Finish < ${hhmm(RULES.earlyFinish)} · Short Hours < ${RULES.shortHours / 60} ชม. · Short Visits < ${RULES.shortVisit} นาที · Far Check-in = Compliance no (> ~${RULES.farCheckinM} ม.)`,
+  `เกณฑ์: Late Start > ${hhmm(RULES.lateStart)} · Early Finish < ${hhmm(RULES.earlyFinish)} · Short Hours < ${RULES.shortHours / 60} ชม. · Short Visits < ${RULES.shortVisit} นาที · Far Check-in = เช็คอินห่างพิกัดร้าน > ${RULES.farCheckinM} ม. (Diff m)`,
   'Total Issues = Late Start + Early Finish + Short Hours + Quick Visits + Far Check-in',
 ];

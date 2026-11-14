@@ -6,9 +6,13 @@ export const RULES = {
   lateStart: 8 * 60 + 45,    // เข้าร้านแรกหลัง 08:45 = เริ่มงานสาย
   earlyFinish: 15 * 60 + 30, // ออกร้านสุดท้ายก่อน 15:30 = เลิกงานก่อนเวลา
   shortHours: 6 * 60,     // ร้านแรก → ร้านสุดท้าย น้อยกว่า 6 ชม. = ชั่วโมงทำงานน้อย
-  shortVisit: 10,         // อยู่ร้านน้อยกว่า 10 นาที = เยี่ยมเร็วเกินไป
-  farCheckinM: 150,       // ช่อง Compliance = no (เช็คอินห่างพิกัดร้านเกิน ~150 ม.) = เช็คอินไกล
+  shortVisit: 3,          // อยู่ร้านน้อยกว่า 3 นาที = เยี่ยมเร็วเกินไป
+  farCheckinM: 100,       // Diff (m) เกิน 100 ม. = เช็คอินไกล (ไม่มีค่า Diff ใช้ช่อง Compliance = no แทน)
 };
+
+/** เช็คอินไกลร้าน: ระยะจากพิกัดร้าน > RULES.farCheckinM */
+export const isFar = (v: { diff: number | null; comp: boolean | null }) =>
+  v.diff != null ? v.diff > RULES.farCheckinM : v.comp === false;
 
 export type SSeller = { company: string; branch: string; principal: string; manager: string; supervisor: string; seller: string; name: string };
 export type SPlanDay = { s: string; d: string; planned: number; planVisited: number }; // แผนของวัน + ร้านในแผนที่ไปจริงวันนั้น
@@ -52,7 +56,7 @@ const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${S
 
 // ปัญหา 6 ข้อ: ชื่อไทย + หน่วยนับ (ครั้ง / วัน / บิล) + เกณฑ์
 export const ISSUES = [
-  { key: 'farCheckin', label: 'เช็คอินไกลร้าน', short: 'Far Check-in', unit: 'ครั้ง', rule: `เช็คอินห่างพิกัดร้าน > ~${RULES.farCheckinM} ม.` },
+  { key: 'farCheckin', label: 'เช็คอินไกลร้าน', short: 'Far Check-in', unit: 'ครั้ง', rule: `เช็คอินห่างพิกัดร้าน > ${RULES.farCheckinM} ม.` },
   { key: 'shortVisits', label: 'เยี่ยมเร็วเกินไป', short: 'Quick Visits', unit: 'ครั้ง', rule: `อยู่ร้าน < ${RULES.shortVisit} นาที` },
   { key: 'lateStart', label: 'เริ่มงานสาย', short: 'Late Start', unit: 'วัน', rule: `เข้าร้านแรกหลัง ${clock(RULES.lateStart)}` },
   { key: 'shortHours', label: 'ชั่วโมงทำงานน้อย', short: 'Short Hours', unit: 'วัน', rule: `ร้านแรก → ร้านสุดท้าย < ${RULES.shortHours / 60} ชม.` },
@@ -91,7 +95,7 @@ export function dayStats(data: StangsData, seller: string, from: string, to: str
     x.visits++;
     if (v.adhoc) x.adhoc++;
     if (v.dur != null && v.dur < RULES.shortVisit) x.shortVisits++;
-    if (v.comp === false) x.farCheckin++;
+    if (isFar(v)) x.farCheckin++;
     if (v.start != null) {
       x.start = x.start == null ? v.start : Math.min(x.start, v.start);
       x.end = Math.max(x.end ?? v.start, v.end ?? v.start);
