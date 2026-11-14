@@ -5,12 +5,15 @@
 import { Fragment, useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  dayStats, hhmm, ISSUES, NEXT_ACTION, PLAN_LEVEL_LABEL, PLAN_RULE, planLevel, planStandard, RULES, sellerRows, totals,
+  dayStats, hhmm, ISSUES, NEXT_ACTION, PLAN_LEVEL_LABEL, PLAN_TYPE_LABEL, PLAN_RULE, planLevel, planStandard, RULES, sellerRows, totals,
   type DayStat, type Metrics, type SellerRow, type StangsData,
 } from '@/app/lib/stangsCalc';
 import { COMPANY_COLORS, fmtInt } from '@/app/lib/format';
 import { buildWorkbook, downloadBuffer, exportedAt, type XSheet } from '@/app/lib/xlsx';
 import { closeLoading, showError, showLoading, showToast } from '@/app/components/Loading';
+import type { DayStore } from '@/app/dashboard/stangs/day/route';
+
+type DaySales = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ok'; stores: DayStore[] };
 
 const ALL = '';
 const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort();
@@ -66,6 +69,21 @@ export default function StangsBoard({ data }: { data: StangsData }) {
   const [seller, setSeller] = useState(ALL);
   const [onlyIssue, setOnlyIssue] = useState(false);
   const [openDay, setOpenDay] = useState('');
+  const [daySales, setDaySales] = useState<Record<string, DaySales>>({});
+  const toggleDay = (seller: string, company: string, d: string) => {
+    if (openDay === d) { setOpenDay(''); return; }
+    setOpenDay(d);
+    const key = `${seller}|${d}`;
+    if (daySales[key]?.state === 'ok' || daySales[key]?.state === 'loading') return;
+    setDaySales((m) => ({ ...m, [key]: { state: 'loading' } }));
+    fetch(`/dashboard/stangs/day?${new URLSearchParams({ company, seller, d })}`)
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+        setDaySales((m) => ({ ...m, [key]: { state: 'ok', stores: j.stores as DayStore[] } }));
+      })
+      .catch((e: unknown) => setDaySales((m) => ({ ...m, [key]: { state: 'error', message: e instanceof Error ? e.message : String(e) } })));
+  };
 
   // ตัวเลือกแต่ละช่องขึ้นกับช่องก่อนหน้า
   const s = data.sellers;
@@ -450,16 +468,23 @@ export default function StangsBoard({ data }: { data: StangsData }) {
               <thead>
                 <tr>
                   <th>วันที่</th><th className="r">เข้า – ออก</th><th className="r">ชม.ทำงาน</th><th className="r">ในร้าน</th>
-                  <th className="r">เยี่ยม / แผน</th><th className="r">Adhoc</th><th className="r">เยี่ยมเร็วเกินไป</th><th className="r">เช็คอินไกลร้าน</th>
+                  <th className="r">เยี่ยม / แผน</th><th className="r">โยก / นอกแผน</th><th className="r">เยี่ยมเร็วเกินไป</th><th className="r">เช็คอินไกลร้าน</th>
                   <th className="r">บิล</th><th className="r">ยอดขาย</th>
                 </tr>
               </thead>
               <tbody>
                 {days.map((x) => {
-                  const vs = openDay === x.d ? data.visits.filter((v) => v.s === picked.seller && v.d === x.d).sort((a, b) => (a.start ?? 0) - (b.start ?? 0)) : [];
+                  const dayVisits = data.visits.filter((v) => v.s === picked.seller && v.d === x.d);
+                  const vs = openDay === x.d ? [...dayVisits].sort((a, b) => (a.start ?? 0) - (b.start ?? 0)) : [];
+                  const moved = dayVisits.filter((v) => v.pt === 'moved').length;
+                  const off = dayVisits.filter((v) => v.pt === 'adhoc').length;
+                  const ds = daySales[`${picked.seller}|${x.d}`];
+                  const sold = ds?.state === 'ok' ? new Map(ds.stores.map((s) => [s.store, s])) : null;
+                  const visitedStores = new Set(dayVisits.map((v) => v.store));
+                  const soldNoVisit = ds?.state === 'ok' ? ds.stores.filter((s) => !visitedStores.has(s.store)) : [];
                   return (
                     <Fragment key={x.d}>
-                      <tr className={`stg-row${openDay === x.d ? ' on' : ''}${x.d > asOf ? ' stg-future' : ''}`} onClick={() => setOpenDay(openDay === x.d ? '' : x.d)}>
+                      <tr className={`stg-row${openDay === x.d ? ' on' : ''}${x.d > asOf ? ' stg-future' : ''}`} onClick={() => toggleDay(picked.seller, picked.company, x.d)}>
                         <td data-label="วันที่" className="strong">
                           <span className="stg-day">
                             {weekday(x.d)} {dShort(x.d)}
@@ -472,7 +497,7 @@ export default function StangsBoard({ data }: { data: StangsData }) {
                         <td className={`r ${x.shortHrs ? 'stg-red' : ''}`} data-label="ชม.ทำงาน">{hhmm(x.work)}</td>
                         <td className="r" data-label="ในร้าน">{x.start == null ? '—' : hhmm(x.store)}</td>
                         <td className="r" data-label="เยี่ยม / แผน">{x.visits} / {x.planned} <span className="muted">(ตามแผน {x.planVisited})</span></td>
-                        <td className="r" data-label="Adhoc">{x.adhoc || '–'}</td>
+                        <td className="r" data-label="โยก / นอกแผน">{moved || off ? `${moved} / ${off}` : '–'}</td>
                         <td className={`r ${x.shortVisits ? 'stg-red' : ''}`} data-label="เยี่ยมเร็วเกินไป">{x.shortVisits || '–'}</td>
                         <td className={`r ${x.farCheckin ? 'stg-red' : ''}`} data-label="เช็คอินไกลร้าน">{x.farCheckin || '–'}</td>
                         <td className="r" data-label="บิล">{x.bills || '–'}</td>
@@ -482,17 +507,51 @@ export default function StangsBoard({ data }: { data: StangsData }) {
                         <tr className="stg-visits-row">
                           <td colSpan={10}>
                             {vs.length === 0 ? <p className="muted">ไม่มีการเข้าพบในวันนี้</p> : (
-                              <ul className="stg-visits">
-                                {vs.map((v, j) => (
-                                  <li key={j} className={v.comp === false || (v.dur != null && v.dur < RULES.shortVisit) ? 'warn' : ''}>
-                                    <span className="t">{hhmm(v.start)}–{hhmm(v.end)}</span>
-                                    <span className="n"><b>{v.storeName || v.store}</b><span className="muted"> {v.store}{v.adhoc ? ' · นอกแผน' : ''}</span></span>
-                                    <span className={v.dur != null && v.dur < RULES.shortVisit ? 'stg-red' : ''}>{v.dur ?? '–'} นาที</span>
-                                    <span className={v.comp === false ? 'stg-red' : ''}>{v.diff == null ? '–' : `${fmtInt(v.diff)} ม.`}</span>
-                                    <span className="muted">{v.status}</span>
-                                  </li>
+                              <div className="stg-visits">
+                                <div className="stg-vhead">
+                                  <span>เวลา</span><span>ร้าน · ประเภท</span><span className="r">นาที</span><span className="r">ห่างร้าน</span><span>สถานะ</span><span>ขายได้ (vw_lg014)</span>
+                                </div>
+                                {vs.map((v, j) => {
+                                  const s = sold?.get(v.store);
+                                  return (
+                                    <div key={j} className={`stg-vrow${v.comp === false || (v.dur != null && v.dur < RULES.shortVisit) ? ' warn' : ''}`}>
+                                      <span className="t">{hhmm(v.start)}–{hhmm(v.end)}</span>
+                                      <span className="n">
+                                        <b>{v.storeName || v.store}</b> <span className="muted">{v.store}</span>{' '}
+                                        <span className={`stg-pt stg-pt-${v.pt}`}>{PLAN_TYPE_LABEL[v.pt]}</span>
+                                      </span>
+                                      <span className={`r ${v.dur != null && v.dur < RULES.shortVisit ? 'stg-red' : ''}`}>{v.dur ?? '–'}</span>
+                                      <span className={`r ${v.comp === false ? 'stg-red' : ''}`}>{v.diff == null ? '–' : `${fmtInt(v.diff)} ม.`}</span>
+                                      <span className="muted">{v.status}</span>
+                                      <span className="stg-sale">
+                                        {!ds || ds.state === 'loading' ? <span className="muted">กำลังโหลด…</span>
+                                          : ds.state === 'error' ? <span className="stg-red">โหลดไม่สำเร็จ</span>
+                                          : !s ? <span className="muted">ไม่ได้ขาย</span>
+                                          : <>
+                                            <b>GIV {fmtInt(s.giv)}</b> · NIV {fmtInt(s.niv)} · <b>{s.skus}</b> SKU
+                                            <span className="stg-docs">{s.docs.map((d) => `${d.credit ? 'ลดหนี้ ' : ''}${d.no}`).join(', ')}</span>
+                                          </>}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {soldNoVisit.length > 0 && (
+                              <div className="stg-visits stg-novisit">
+                                <div className="stg-vhead"><span>ขายโดยไม่มีการเข้าพบวันนี้ ({soldNoVisit.length} ร้าน)</span></div>
+                                {soldNoVisit.map((s) => (
+                                  <div key={s.store} className="stg-vrow">
+                                    <span className="t">—</span>
+                                    <span className="n"><b>{s.name || s.store}</b> <span className="muted">{s.store}</span></span>
+                                    <span /><span /><span />
+                                    <span className="stg-sale">
+                                      <b>GIV {fmtInt(s.giv)}</b> · NIV {fmtInt(s.niv)} · <b>{s.skus}</b> SKU
+                                      <span className="stg-docs">{s.docs.map((d) => `${d.credit ? 'ลดหนี้ ' : ''}${d.no}`).join(', ')}</span>
+                                    </span>
+                                  </div>
                                 ))}
-                              </ul>
+                              </div>
                             )}
                           </td>
                         </tr>

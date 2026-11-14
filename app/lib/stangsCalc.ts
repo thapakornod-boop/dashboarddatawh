@@ -15,7 +15,11 @@ export type SPlanDay = { s: string; d: string; planned: number; planVisited: num
 export type SVisit = {
   s: string; d: string; store: string; storeName: string; start: number | null; end: number | null; dur: number | null;
   diff: number | null; comp: boolean | null; adhoc: boolean; status: string;
+  pt: PlanType; // ประเภทการเข้าพบเทียบแผน
 };
+// plan = เยี่ยมตามแผน (ร้านอยู่ในแผนวันนั้น) · moved = โยก (ร้านอยู่ในแผนของเซลล์คนนี้ แต่เป็นวันอื่น) · adhoc = นอกแผน
+export type PlanType = 'plan' | 'moved' | 'adhoc';
+export const PLAN_TYPE_LABEL: Record<PlanType, string> = { plan: 'เยี่ยม', moved: 'โยก', adhoc: 'นอกแผน' };
 // ยอดขายราย เซลล์ × ร้าน × วัน (c = รหัสร้าน · b = บิล · l = บรรทัด · g = GIV · n = NIV)
 export type SSale = { s: string; d: string; c: string; b: number; l: number; g: number; n: number };
 export type StangsData = {

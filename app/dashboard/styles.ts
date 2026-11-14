@@ -254,9 +254,19 @@ export const DASHBOARD_CSS = `
         .stg-advice > div:first-child { background: #FFF1F1; }
         .stg-days { font-size: 14px; }
         .stg-visits-row td { background: #FAFBFD; padding: 8px 12px 12px; }
-        .stg-visits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-        .stg-visits li { display: grid; grid-template-columns: 96px minmax(0, 1fr) 72px 90px 150px; gap: 10px; align-items: baseline; font-size: 13px; padding: 5px 8px; border-radius: 6px; }
-        .stg-visits li.warn { background: #FFF5F5; }
+        /* ร้านที่เข้าพบในวัน: เวลา | ร้าน + ประเภท | นาที | ห่างร้าน | สถานะ | ขายได้ */
+        .stg-visits { display: flex; flex-direction: column; gap: 3px; }
+        .stg-vhead, .stg-vrow { display: grid; grid-template-columns: 92px minmax(0, 1.5fr) 52px 92px 120px minmax(0, 1.6fr); gap: 10px; align-items: baseline; padding: 5px 8px; border-radius: 6px; font-size: 13px; }
+        .stg-vhead { font-size: 12px; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--border); border-radius: 0; }
+        .stg-vrow.warn { background: #FFF5F5; }
+        .stg-vrow .r, .stg-vhead .r { text-align: right; }
+        .stg-pt { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9999px; vertical-align: 1px; }
+        .stg-pt-plan { background: #E3F6EA; color: #18794E; }
+        .stg-pt-moved { background: #FFF1E0; color: #B45309; }
+        .stg-pt-adhoc { background: #EEF2F7; color: #475569; }
+        .stg-sale { font-size: 12.5px; line-height: 1.45; }
+        .stg-docs { display: block; color: var(--neutral); font-size: 11.5px; }
+        .stg-novisit { margin-top: 10px; }
         .stg-visits .t { font-variant-numeric: tabular-nums; color: var(--text-2); }
         @media (max-width: 1100px) {
           .stg-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -277,7 +287,9 @@ export const DASHBOARD_CSS = `
           .stg-advice { grid-template-columns: 1fr; }
           .stg-facts, .stg-chips.stg-chips-row { grid-template-columns: 1fr; }
           .stg-cell.r { align-items: flex-end; }
-          .stg-visits li { grid-template-columns: 1fr 1fr; }
+          .stg-vhead { display: none; }
+          .stg-vrow { grid-template-columns: 1fr 1fr; }
+          .stg-vrow .n, .stg-vrow .stg-sale { grid-column: 1 / -1; }
         }
         /* ปุ่มอัปเดตยอดขาย (หน้าสถานะระบบ) */
         .st-actions { display: flex; flex-wrap: wrap; gap: 8px; }

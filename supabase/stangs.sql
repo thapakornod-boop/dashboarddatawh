@@ -39,8 +39,10 @@ create table if not exists public.stangs_visit (
   diff_m      numeric,       -- ระยะเช็คอินจากพิกัดร้าน (ม.)
   compliant   boolean,       -- ช่อง Compliance yes / no
   adhoc       boolean not null default false,
-  status      text
+  status      text,
+  plan_type   text           -- plan = เยี่ยมตามแผน · moved = โยก (แผนวันอื่น) · adhoc = นอกแผน
 );
+alter table public.stangs_visit add column if not exists plan_type text;
 create index if not exists stangs_visit_d_idx on public.stangs_visit (d, seller);
 
 -- 4) ประวัติการบันทึกจากชีต ------------------------------------------------------------------------

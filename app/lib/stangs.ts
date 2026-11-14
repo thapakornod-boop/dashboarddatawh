@@ -6,7 +6,7 @@
 import 'server-only';
 import { parseCsv } from '@/app/lib/targets';
 import { addDays, deleteRows, insertRows, selectAll, selectTable } from '@/app/lib/api';
-import type { SPlanDay, SSale, SSeller, SVisit, StangsData } from '@/app/lib/stangsCalc';
+import type { PlanType, SPlanDay, SSale, SSeller, SVisit, StangsData } from '@/app/lib/stangsCalc';
 
 const SHEET_ID = process.env.STANGS_SHEET_ID || '1cbBj3KA5-1NGs8vyXk9ovhh7ocF_nRFhP2qZrWiX1h4';
 const TABS = { seller: '0', visit: '1222415386', compliance: '268169504' };
@@ -59,7 +59,7 @@ async function loadSheet(): Promise<Sheet> {
       start: hm(at(r, cI.start)), end: hm(at(r, cI.end)), dur: hm(at(r, cI.dur)),
       diff: at(r, cI.diff) && Number.isFinite(diff) ? diff : null,
       comp: comp === 'yes' ? true : comp === 'no' ? false : null,
-      adhoc: at(r, cI.adhoc).toLowerCase() === 'yes', status: at(r, cI.status),
+      adhoc: at(r, cI.adhoc).toLowerCase() === 'yes', status: at(r, cI.status), pt: 'adhoc' as PlanType,
     };
   }).filter((x) => x.s && x.d);
 
@@ -84,6 +84,16 @@ async function loadSheet(): Promise<Sheet> {
     planMap.set(k, p);
   }
   const plan = [...planMap.values()];
+  // ประเภทการเข้าพบ: ร้านในแผนวันเดียวกัน = เยี่ยม · ร้านในแผนวันอื่นของเซลล์คนเดียวกัน = โยก · ไม่อยู่ในแผน = นอกแผน
+  const planDay = new Set<string>();
+  const planAny = new Set<string>();
+  for (const r of v.rows) {
+    const sCode = at(r, vI.code), d = ymd(at(r, vI.date)), store = at(r, vI.store);
+    if (!sCode || !d) continue;
+    planDay.add(`${sCode}|${d}|${store}`);
+    planAny.add(`${sCode}|${store}`);
+  }
+  for (const x of visits) x.pt = planDay.has(`${x.s}|${x.d}|${x.store}`) ? 'plan' : planAny.has(`${x.s}|${x.store}`) ? 'moved' : 'adhoc';
 
   const dates = [...plan.map((p) => p.d), ...visits.map((x) => x.d)].sort();
   return {
@@ -167,7 +177,7 @@ export function syncStangs(): Promise<StangsSync> {
       await insertRows('stangs_plan_day', sheet.plan.map((p) => ({ seller: p.s, d: p.d, planned: p.planned, plan_visited: p.planVisited })));
       await insertRows('stangs_visit', sheet.visits.map((v) => ({
         seller: v.s, d: v.d, store: v.store || null, store_name: v.storeName || null, start_min: v.start, end_min: v.end, dur_min: v.dur,
-        diff_m: v.diff, compliant: v.comp, adhoc: v.adhoc, status: v.status || null,
+        diff_m: v.diff, compliant: v.comp, adhoc: v.adhoc, status: v.status || null, plan_type: v.pt,
       })));
       const log = {
         ok: true, date_from: from, date_to: to, sellers: sheet.sellers.length,
@@ -237,8 +247,8 @@ export async function getStangs(latestSalesDate: string, req: { from?: string; t
     selectAll<{ ym: string; seller: string; company: string; branch: string | null; principal: string | null; manager: string | null; supervisor: string | null; name: string | null }>(
       `stangs_seller?select=*&ym=in.(${yms.map((m) => `"${m}"`).join(',')})&order=ym,seller`),
     selectAll<{ seller: string; d: string; planned: number; plan_visited: number }>(`stangs_plan_day?select=seller,d,planned,plan_visited&d=gte.${from}&d=lte.${to}&order=d,seller`),
-    selectAll<{ seller: string; d: string; store: string | null; store_name: string | null; start_min: number | null; end_min: number | null; dur_min: number | null; diff_m: number | null; compliant: boolean | null; adhoc: boolean; status: string | null }>(
-      `stangs_visit?select=seller,d,store,store_name,start_min,end_min,dur_min,diff_m,compliant,adhoc,status&d=gte.${from}&d=lte.${to}&order=d,seller,id`),
+    selectAll<{ seller: string; d: string; store: string | null; store_name: string | null; start_min: number | null; end_min: number | null; dur_min: number | null; diff_m: number | null; compliant: boolean | null; adhoc: boolean; status: string | null; plan_type: string | null }>(
+      `stangs_visit?select=seller,d,store,store_name,start_min,end_min,dur_min,diff_m,compliant,adhoc,status,plan_type&d=gte.${from}&d=lte.${to}&order=d,seller,id`),
   ]);
   // ทีมของเซลล์: เดือนล่าสุดในช่วงชนะ
   const bySeller = new Map<string, SSeller>();
@@ -252,6 +262,7 @@ export async function getStangs(latestSalesDate: string, req: { from?: string; t
   const visits: SVisit[] = visitRows.map((v) => ({
     s: v.seller, d: v.d, store: v.store ?? '', storeName: v.store_name ?? '', start: v.start_min, end: v.end_min, dur: v.dur_min,
     diff: v.diff_m == null ? null : Number(v.diff_m), comp: v.compliant, adhoc: v.adhoc, status: v.status ?? '',
+    pt: (v.plan_type === 'plan' || v.plan_type === 'moved' ? v.plan_type : 'adhoc') as PlanType,
   }));
   const end = to < latestSalesDate ? to : latestSalesDate;
   const [sales, tripEndList] = await Promise.all([
