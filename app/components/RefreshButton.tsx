@@ -5,7 +5,7 @@ import { useTransition } from 'react';
 import { refreshData } from '@/app/dashboard/actions';
 import { closeLoading, showError, showLoading, showToast } from '@/app/components/Loading';
 
-export default function RefreshButton({ className = 'clear-btn' }: { className?: string }) {
+export default function RefreshButton({ className = 'clear-btn', label = '↻ รีเฟรชข้อมูลชีต' }: { className?: string; label?: string }) {
   const [pending, startTransition] = useTransition();
   const onClick = () => {
     showLoading('กำลังรีเฟรชข้อมูล', 'อ่าน Google Sheet และยอดขายล่าสุด');
@@ -22,7 +22,7 @@ export default function RefreshButton({ className = 'clear-btn' }: { className?:
   };
   return (
     <button type="button" className={className} onClick={onClick} disabled={pending}>
-      ↻ รีเฟรชข้อมูลชีต
+      {label}
     </button>
   );
 }

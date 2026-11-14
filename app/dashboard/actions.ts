@@ -5,10 +5,12 @@ import { refresh } from 'next/cache';
 import { clearDataCache } from '@/app/lib/api';
 import { requireEmployee } from '@/app/lib/session';
 import { clearTargetsCache } from '@/app/lib/targets';
+import { clearStangsCache } from '@/app/lib/stangs';
 
 export async function refreshData() {
   await requireEmployee();
   clearTargetsCache();
+  clearStangsCache();
   clearDataCache();
   refresh();
 }

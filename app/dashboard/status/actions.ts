@@ -26,3 +26,12 @@ export async function finishDataRefresh() {
   clearDataCache();
   refresh();
 }
+
+// ปุ่ม "บันทึก STANGS ลง Supabase": อ่าน 3 tab แล้วแทนที่ช่วงวันที่ที่มีในชีต (supabase/stangs.sql)
+export async function syncStangsNow() {
+  await requireAdmin();
+  const { syncStangs } = await import('@/app/lib/stangs');
+  const r = await syncStangs();
+  refresh();
+  return r;
+}

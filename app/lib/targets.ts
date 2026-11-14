@@ -37,7 +37,7 @@ const RETRY_MS = 30 * 1000;
 const sumTarget = (rows: TargetRow[] | undefined) => (rows ?? []).reduce((s, r) => s + r.target, 0);
 let loading: Promise<Map<string, TargetRow[]>> | null = null;
 
-function parseCsv(text: string) {
+export function parseCsv(text: string) {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = '';
@@ -82,11 +82,27 @@ type SheetRow = {
   sm: string; sup: string; channel: string; name: string; sheetGiv: number; sheetNiv: number;
 };
 
-async function fetchTab(sheetId: string, tab: string) {
-  const url =
-    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=` +
-    encodeURIComponent(tab);
-  const res = await fetch(url, { cache: 'no-store' });
+// ชื่อ tab → รหัส tab (gid) จากหน้า htmlview ของชีต (ไว้ใช้ export CSV ซึ่งต้องใช้ gid)
+export async function sheetTabGids(sheetId: string): Promise<Map<string, string>> {
+  const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/htmlview`, { cache: 'no-store' });
+  if (!res.ok) return new Map();
+  const html = await res.text();
+  return new Map([...html.matchAll(/\{name:\s*"([^"]+)"[^}]*gid:\s*"?(\d+)/g)].map((m) => [m[1], m[2]]));
+}
+
+// URL อ่าน tab เป็น CSV — ใช้ export (ได้ทุกแถว แม้มีคนเปิด filter ค้างไว้ในชีต)
+// ไม่รู้ gid → ถอยไปใช้ gviz ตามชื่อ tab (gviz ซ่อนแถวที่ถูก filter)
+export function sheetCsvUrl(sheetId: string, tab: string, gids: Map<string, string>) {
+  const gid = gids.get(tab);
+  return gid
+    ? `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`
+    : `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tab)}`;
+}
+
+async function fetchTab(sheetId: string, tab: string, gids: Map<string, string>) {
+  // รู้รายชื่อ tab แล้วแต่ไม่มี tab นี้ → ข้าม (ไม่ต้องยิง Google)
+  if (gids.size && !gids.has(tab)) return null;
+  const res = await fetch(sheetCsvUrl(sheetId, tab, gids), { cache: 'no-store' });
   if (!res.ok) throw new Error(`Google Sheet "${tab}": HTTP ${res.status}`);
   const [header, ...body] = parseCsv(await res.text());
   if (!header) return null;
@@ -193,9 +209,10 @@ async function loadAll(): Promise<Map<string, TargetRow[]>> {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     tabs.push(d.toISOString().slice(0, 7));
   }
+  const gids = await sheetTabGids(sheetId).catch(() => new Map<string, string>());
   const [resolve, ...sheets] = await Promise.all([
     companyResolver(),
-    ...tabs.map((t) => fetchTab(sheetId, t)),
+    ...tabs.map((t) => fetchTab(sheetId, t, gids)),
   ]);
 
   const byMonth = new Map<string, TargetRow[]>();
@@ -254,6 +271,17 @@ async function allTargets() {
       loading = null;
     });
   return loading;
+}
+
+// หน้าสถานะระบบ: อ่านชีตล่าสุดเมื่อไร / มีเดือนไหนบ้าง / เวลาอัปเดตใน tab Estimate
+export async function targetsInfo() {
+  const byMonth = await allTargets();
+  return {
+    loadedAt: cache?.at ?? Date.now(),
+    months: [...byMonth.keys()].sort(),
+    rows: [...byMonth.values()].reduce((n, r) => n + r.length, 0),
+    updatedAt: sheetUpdatedAt,
+  };
 }
 
 // ปุ่ม "รีเฟรชข้อมูลชีต": ลืม cache → ครั้งถัดไปอ่านชีตใหม่ทันที

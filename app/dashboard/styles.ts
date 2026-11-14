@@ -158,7 +158,129 @@ export const DASHBOARD_CSS = `
         .field select:disabled { background: var(--alt); color: var(--neutral); }
         .arrow { color: var(--neutral); padding-bottom: 8px; }
         .filters-hint { font-size: 12px; color: var(--neutral); margin-left: auto; padding-bottom: 10px; }
+        /* ── STANGS KPI & Compliance ── */
+        .stg-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; }
+        .stg-filter-grid .field, .stg-filter-grid select, .stg-filter-grid input { min-width: 0; width: 100%; }
+        .stg-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+        .stg-filter-bar .seg button { font-size: 14px; padding: 7px 14px; }
+        .stg-export { margin-left: auto; }
+        .stg-filter-note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-2); }
+        .stg-band { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
+        .stg-band-head { background: #0D2B6B; color: #FFFFFF; font-size: 13px; letter-spacing: .04em; padding: 7px 16px; text-transform: uppercase; }
+        .stg-band-head b { margin-right: 6px; }
+        .stg-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        .stg-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 10px 16px; text-align: center; border-left: 1px solid rgba(15,27,51,.06); }
+        .stg-tile:first-child { border-left: none; }
+        .stg-tile-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+        .stg-tile-val { font-size: 28px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+        .stg-tile-sub { font-size: 12px; color: var(--text-2); }
+        .stg-blue .stg-tiles { background: #E3EEFF; } .stg-blue .stg-tile-val { color: #1F66E5; }
+        .stg-green .stg-tiles { background: #E3F6EA; } .stg-green .stg-tile-val { color: #18794E; }
+        .stg-orange .stg-tiles { background: #FFF1E3; } .stg-orange .stg-tile-val { color: #C2410C; }
+        .stg-warn { display: block; margin-bottom: 6px; padding: 8px 12px; border-radius: 8px; background: #FFF7E6; color: #AD4E00; font-weight: 600; }
+        .stg-band-note { margin: 0; padding: 10px 16px; font-size: 12.5px; color: var(--text-2); line-height: 1.6; border-top: 1px solid var(--border); }
+        .stg-table { font-size: 14px; table-layout: fixed; width: 100%; }
+        .stg-table th:nth-child(1) { width: 36px; } .stg-table th:nth-child(2) { width: 14%; } .stg-table th:nth-child(3) { width: 17%; }
+        .stg-table th:nth-child(4) { width: 17%; } .stg-table th:nth-child(5) { width: 18%; } .stg-table th:nth-child(7) { width: 116px; }
+        /* ป้าย : ตัวเลข เรียงตรงกันทุกแถว */
+        .stg-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; font-size: 13px; line-height: 1.45; }
+        .stg-kv dt { color: var(--neutral); white-space: nowrap; }
+        .stg-kv dd { margin: 0; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .stg-kv dd b { font-weight: 700; }
+        .stg-kv dd.stg-red, .stg-kv .stg-red { color: #C81E1E; font-weight: 700; }
+        /* แผนทั้งทริปเทียบมาตรฐาน 600 / เดือน */
+        .stg-plan { display: inline-block; padding: 1px 7px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+        .stg-plan-ok { background: #E3F6EA; color: #18794E; }
+        .stg-plan-over { background: #FFF1E0; color: #B45309; }
+        .stg-plan-overHigh { background: #FFE4E4; color: #B91C1C; }
+        .stg-plan-under { background: #E6F1FF; color: #1D4ED8; }
+        .stg-plan-underLow { background: #F1E8FF; color: #6D28D9; }
+        .stg-plan-none { font-weight: 400; color: var(--neutral); }
+        .stg-plan-note { font-size: 12px; margin-top: 2px; line-height: 1.4; }
+        .stg-plan-txt-ok { color: #18794E; } .stg-plan-txt-over { color: #B45309; } .stg-plan-txt-overHigh { color: #B91C1C; font-weight: 600; }
+        .stg-plan-txt-under { color: #1D4ED8; } .stg-plan-txt-underLow { color: #6D28D9; font-weight: 600; }
+        .stg-big { font-size: 16px; }
+        .stg-cell .stg-kv { margin-top: 4px; }
+        .stg-table td { padding-top: 16px; padding-bottom: 16px; }
+        .stg-table td:nth-child(3), .stg-table td:nth-child(4), .stg-table td:nth-child(5) { padding-right: 18px; }
+        .stg-rank { font-size: 15px; font-weight: 700; color: var(--neutral); }
+        .stg-cell { display: flex; flex-direction: column; gap: 4px; line-height: 1.4; }
+        .stg-cell.r { align-items: flex-end; text-align: right; }
+        .stg-main { font-size: 17px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+        .stg-main small { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+        .stg-sub { font-size: 12.5px; color: var(--neutral); }
+        .stg-ok { font-size: 13px; color: #18794E; font-weight: 600; }
+        .stg-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+        .stg-facts > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+        .stg-facts span { font-size: 12px; color: var(--text-2); }
+        .stg-facts b { font-size: 15px; font-variant-numeric: tabular-nums; }
+        .stg-chips.stg-chips-row { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 14px; }
+        .stg-table td { vertical-align: top; overflow-wrap: anywhere; }
+        .stg-row { cursor: pointer; }
+        .stg-row:hover td { background: #F6F9FF; }
+        .stg-row.on td { background: #EAF1FF; }
+        .stg-idle td { color: var(--neutral); }
+        .stg-future td { color: var(--neutral); }
+        .stg-who, .stg-stack { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+        .stg-who b { font-size: 15px; } .stg-stack.r { align-items: flex-end; }
+        .stg-stack b { font-size: 15px; }
+        .stg-red { color: #C81E1E; font-weight: 700; }
+        .stg-meter { display: block; height: 6px; border-radius: 9999px; background: var(--track); overflow: hidden; }
+        .stg-meter > span { display: block; height: 100%; background: #1F66E5; border-radius: 9999px; }
+        .stg-meter > span.low { background: #F59E0B; } .stg-meter > span.bad { background: #EF4444; }
+        .stg-chips { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+        .stg-chip { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 3px 10px; border-radius: 9999px; background: var(--alt); color: var(--text-2); white-space: nowrap; }
+        .stg-chip > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+        .stg-filter-grid input[type="date"] { height: 38px; min-width: 0; width: 100%; flex: none; padding: 0 8px; }
+        /* แต่ละข้อมูลอยู่คนละบรรทัด (ป้ายเล็ก + ตัวเลขหนา) */
+        .stg-lines > span { line-height: 1.45; }
+        .stg-lines b { font-size: 14px; }
+        /* ปุ่มดูรายละเอียด: บอกให้รู้ว่ากดได้ */
+        .stg-more {
+          border: 1px solid var(--brand-100); background: var(--brand-50); color: var(--brand-700); font: 600 12.5px var(--font-body);
+          padding: 5px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+        }
+        .stg-more:hover { background: var(--brand-100); }
+        .stg-more.on { background: var(--primary); border-color: var(--primary); color: #FFFFFF; }
+        .stg-more:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+        .stg-day { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .stg-chip b { font-weight: 700; color: var(--text); }
+        .stg-chip.bad { background: #FFE4E4; color: #A8071A; } .stg-chip.bad b { color: #A8071A; }
+        .stg-total { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+        .stg-total b { font-size: 20px; color: #A8071A; } .stg-total .stg-meter { width: 100%; }
+        .stg-detail { scroll-margin-top: 16px; border: 1px solid var(--brand-100); }
+        .stg-advice { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+        .stg-advice > div { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 10px; background: var(--brand-50); }
+        .stg-advice > div:first-child { background: #FFF1F1; }
+        .stg-days { font-size: 14px; }
+        .stg-visits-row td { background: #FAFBFD; padding: 8px 12px 12px; }
+        .stg-visits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+        .stg-visits li { display: grid; grid-template-columns: 96px minmax(0, 1fr) 72px 90px 150px; gap: 10px; align-items: baseline; font-size: 13px; padding: 5px 8px; border-radius: 6px; }
+        .stg-visits li.warn { background: #FFF5F5; }
+        .stg-visits .t { font-variant-numeric: tabular-nums; color: var(--text-2); }
+        @media (max-width: 1100px) {
+          .stg-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .stg-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .stg-chips.stg-chips-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .stg-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        @media (max-width: 640px) {
+          .stg-filter-grid { grid-template-columns: 1fr 1fr; }
+          .stg-seller-field { grid-column: 1 / -1; }
+          .stg-export { margin-left: 0; width: 100%; }
+          .stg-filter-bar .seg { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+          .stg-filter-bar .seg button { white-space: normal; padding: 8px; }
+          .stg-tiles { grid-template-columns: 1fr 1fr; }
+          .stg-tile { border-left: none; border-top: 1px solid rgba(15,27,51,.06); }
+          .stg-tile-val { font-size: 22px; }
+          .stg-table { table-layout: auto; }
+          .stg-advice { grid-template-columns: 1fr; }
+          .stg-facts, .stg-chips.stg-chips-row { grid-template-columns: 1fr; }
+          .stg-cell.r { align-items: flex-end; }
+          .stg-visits li { grid-template-columns: 1fr 1fr; }
+        }
         /* ปุ่มอัปเดตยอดขาย (หน้าสถานะระบบ) */
+        .st-actions { display: flex; flex-wrap: wrap; gap: 8px; }
         .data-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; }
         /* แถบ Export Excel (ร้านค้า / ร้านเครดิต) */
         .export-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin: 4px 0 16px; padding: 12px 14px; border: 1px dashed var(--brand-100); border-radius: 12px; background: var(--brand-50); }

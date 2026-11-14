@@ -3,6 +3,9 @@
 import { redirect } from 'next/navigation';
 import { getBackfillStatus, getCronStatus, getLatestDate, getManualRefresh, getSellerAuto, type CronJob, type ManualRefresh, type SellerAuto, type SellerUnmapped } from '@/app/lib/api';
 import DataRefreshButton from '@/app/components/DataRefreshButton';
+import { targetsInfo } from '@/app/lib/targets';
+import { lastStangsSync, stangsInfo, type StangsSync } from '@/app/lib/stangs';
+import StangsSyncButton from '@/app/components/StangsSyncButton';
 import { requireEmployee } from '@/app/lib/session';
 import { checkHealth, type Health } from '@/app/lib/health';
 import { formatDate } from '@/app/lib/period';
@@ -43,14 +46,21 @@ export default async function StatusPage() {
   let backfill: { name: string; next_month: string }[] | null = null;
   let sellerAuto: { recent: SellerAuto[]; pending: SellerUnmapped[] } | null = null;
   let manual: ManualRefresh | null = null;
+  // อ่านชีตไม่ได้ไม่ให้หน้าล้ม — เก็บข้อความ error ไว้แสดง
+  const settle = <T,>(p: Promise<T>) => p.then((v) => ({ v, e: '' }), (e: unknown) => ({ v: null, e: e instanceof Error ? e.message : String(e) }));
+  let tRes: { v: Awaited<ReturnType<typeof targetsInfo>> | null; e: string } = { v: null, e: '' };
+  let sRes: { v: Awaited<ReturnType<typeof stangsInfo>> | null; e: string } = { v: null, e: '' };
+  let dbRes: { v: StangsSync | null; e: string } = { v: null, e: '' };
   try {
     const latest = await getLatestDate();
-    [health, jobs, backfill, sellerAuto, manual] = await Promise.all([
+    [health, jobs, backfill, sellerAuto, manual, tRes, sRes, dbRes] = await Promise.all([
       checkHealth(latest), getCronStatus(), getBackfillStatus(), getSellerAuto().catch(() => null), getManualRefresh().catch(() => null),
+      settle(targetsInfo()), settle(stangsInfo()), settle(lastStangsSync()),
     ]);
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : 'เกิดข้อผิดพลาด';
   }
+  const tInfo = tRes.v, tErr = tRes.e, sInfo = sRes.v, sErr = sRes.e, sync = dbRes.v, syncErr = dbRes.e;
   const failing = (jobs ?? []).filter((j) => j.last_status === 'failed' || j.fails_24h > 0);
 
   return (
@@ -71,6 +81,69 @@ export default async function StatusPage() {
             · ใช้เวลาราว 1–3 นาที เสร็จแล้วหน้าเว็บอัปเดตเอง
           </p>
           <DataRefreshButton initial={manual} />
+        </section>
+
+        {/* ── ข้อมูลจาก Google Sheet: อ่านทุกแถว (ไม่สน filter) · กดดึงใหม่ได้ทันที ── */}
+        <section className="card">
+          <header className="card-head">
+            <div>
+              <h3 className="card-title">ข้อมูลจาก Google Sheet</h3>
+              <p className="card-sub">
+                Target / BE: หน้าเว็บอ่านชีตใหม่เองทุก 5 นาที · STANGS: เก็บไว้ใน Supabase บันทึกจากชีตอัตโนมัติเมื่อเปิดหน้า STANGS แล้วบันทึกล่าสุดเกิน 1 ชม. ·
+                ใส่เดือนย้อนหลังในชีตแล้วกด <b>บันทึก STANGS</b> = เพิ่มเดือนนั้นถาวร (แทนที่เฉพาะช่วงวันที่ที่มีในชีต) · อ่านทุกแถวแม้มีคนเปิด filter ค้างไว้
+              </p>
+            </div>
+            <div className="st-actions">
+              <RefreshButton className="btn btn-primary" label="↻ ดึงข้อมูลจาก Google Sheet ตอนนี้" />
+              <StangsSyncButton />
+            </div>
+          </header>
+          <table className="rtable status-table">
+            <thead>
+              <tr><th>ชีต</th><th>อ่านล่าสุด</th><th>ข้อมูลที่อ่านได้</th><th>สถานะ</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>BEST - Estimate</b><span className="muted st-job"> Target / BE / ทีม / Channel</span></td>
+                <td data-label="อ่านล่าสุด">{tInfo ? th(new Date(tInfo.loadedAt).toISOString()) : '–'}</td>
+                <td data-label="ข้อมูลที่อ่านได้">
+                  {tInfo ? <>{fmtInt(tInfo.rows)} แถว · {tInfo.months.length} เดือน ({tInfo.months[0]} → {tInfo.months[tInfo.months.length - 1]}){tInfo.updatedAt ? ` · ชีตอัปเดต ${tInfo.updatedAt}` : ''}</> : '–'}
+                </td>
+                <td data-label="สถานะ">{tInfo ? <span className="sc-chip up">ปกติ</span> : <span className="sc-chip down" title={tErr}>อ่านไม่ได้</span>}</td>
+              </tr>
+              <tr>
+                <td><b>STANGS</b><span className="muted st-job"> Seller / Visit (แผน) / Compliance (เข้าพบ)</span></td>
+                <td data-label="อ่านล่าสุด">{sInfo ? th(new Date(sInfo.loadedAt).toISOString()) : '–'}</td>
+                <td data-label="ข้อมูลที่อ่านได้">
+                  {sInfo ? <>
+                    เซลล์ {fmtInt(sInfo.sellers)} คน · แผน {fmtInt(sInfo.planRows)} ร้าน ({fmtInt(sInfo.planSellers)} คน) · เข้าพบ {fmtInt(sInfo.visits)} ครั้ง ·
+                    ทริป {sInfo.firstDate ? formatDate(sInfo.firstDate) : '–'} – {sInfo.lastDate ? formatDate(sInfo.lastDate) : '–'} · เข้าพบล่าสุด {sInfo.latest ? formatDate(sInfo.latest) : '–'}
+                  </> : '–'}
+                </td>
+                <td data-label="สถานะ">
+                  {!sInfo ? <span className="sc-chip down" title={sErr}>อ่านไม่ได้</span>
+                    : sInfo.planSellers < sInfo.sellers ? <span className="sc-chip mid">แผนมีแค่ {sInfo.planSellers} จาก {sInfo.sellers} คน</span>
+                    : <span className="sc-chip up">ปกติ</span>}
+                </td>
+              </tr>
+              <tr>
+                <td><b>STANGS ใน Supabase</b><span className="muted st-job"> ข้อมูลที่หน้า STANGS KPI ใช้</span></td>
+                <td data-label="บันทึกล่าสุด">{sync ? th(sync.at) : '–'}</td>
+                <td data-label="ข้อมูลที่บันทึก">
+                  {syncErr ? 'ยังไม่ได้รัน supabase/stangs.sql ใน Supabase'
+                    : !sync ? 'ยังไม่เคยบันทึก'
+                    : sync.ok ? <>{sync.message} · เซลล์ {fmtInt(sync.sellers ?? 0)} คน · แผน {fmtInt(sync.plan_rows ?? 0)} ร้าน · เข้าพบ {fmtInt(sync.visits ?? 0)} ครั้ง</>
+                    : sync.message}
+                </td>
+                <td data-label="สถานะ">
+                  {syncErr ? <span className="sc-chip mid">รอรัน SQL</span>
+                    : !sync ? <span className="sc-chip mid">ยังไม่เคยบันทึก</span>
+                    : sync.ok ? <span className="sc-chip up">บันทึกแล้ว</span>
+                    : <span className="sc-chip down">ล้ม</span>}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </section>
 
         {/* ── ความครบของข้อมูลรายบริษัท ── */}

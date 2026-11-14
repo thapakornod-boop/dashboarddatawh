@@ -152,6 +152,36 @@ export async function selectTable<T>(query: string): Promise<T[]> {
   return (await res.json()) as T[];
 }
 
+// เขียนตาราง (ฝั่ง server เท่านั้น — service_role): insert ทีละชุด / delete ตามเงื่อนไข
+export async function insertRows(table: string, rows: object[], chunk = 1000) {
+  for (let i = 0; i < rows.length; i += chunk) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify(rows.slice(i, i + chunk)),
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`Supabase insert ${table}: ${res.status} ${await res.text()}`);
+  }
+}
+export async function deleteRows(tableAndFilter: string) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${tableAndFilter}`, {
+    method: 'DELETE',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Supabase delete ${tableAndFilter.split('?')[0]}: ${res.status} ${await res.text()}`);
+}
+// อ่านตารางทีละ 1000 แถวจนหมด (query ต้องมี order เพื่อให้แบ่งหน้าได้ถูก)
+export async function selectAll<T>(query: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let o = 0; ; o += 1000) {
+    const page = await selectTable<T>(`${query}&limit=1000&offset=${o}`);
+    out.push(...page);
+    if (page.length < 1000) return out;
+  }
+}
+
 // cache ในหน่วยความจำ 5 นาที — ตารางสรุปอัปเดตตามรอบอยู่แล้ว
 // เปิดซ้ำ / เปลี่ยน filter ไปมาจะไม่ต้องยิง Supabase ใหม่ทุกครั้ง (เก็บ Promise กันยิงซ้ำตอนโหลดพร้อมกัน)
 const CACHE_MS = 5 * 60 * 1000;

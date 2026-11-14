@@ -41,6 +41,14 @@ function IconCredit() {
     </svg>
   );
 }
+function IconCheck() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4V3h6v1M9 12l2 2 4-4M9 17h6" />
+    </svg>
+  );
+}
 function IconPulse() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -55,6 +63,7 @@ const ITEMS = [
   { href: '/dashboard/team', label: 'ยอดขายรายทีม', icon: <IconTeam /> },
   { href: '/dashboard/stores', label: 'ยอดขายรายร้าน', icon: <IconStore /> },
   { href: '/dashboard/credit', label: 'ร้านเครดิต', icon: <IconCredit /> },
+  { href: '/dashboard/stangs', label: 'STANGS KPI', icon: <IconCheck /> },
   { href: '/dashboard/status', label: 'สถานะระบบ', icon: <IconPulse />, admin: true },
 ];
 
