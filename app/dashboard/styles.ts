@@ -163,7 +163,7 @@ export const DASHBOARD_CSS = `
         .stg-filter-grid .field, .stg-filter-grid select, .stg-filter-grid input { min-width: 0; width: 100%; }
         .stg-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
         .stg-filter-bar .seg button { font-size: 14px; padding: 7px 14px; }
-        .stg-export { margin-left: auto; }
+        .stg-export { margin-left: auto; display: inline-flex; gap: 8px; flex-wrap: wrap; }
         .stg-filter-note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-2); }
         .stg-band { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
         .stg-band-head { background: #0D2B6B; color: #FFFFFF; font-size: 13px; letter-spacing: .04em; padding: 7px 16px; text-transform: uppercase; }
@@ -278,6 +278,7 @@ export const DASHBOARD_CSS = `
           .stg-filter-grid { grid-template-columns: 1fr 1fr; }
           .stg-seller-field { grid-column: 1 / -1; }
           .stg-export { margin-left: 0; width: 100%; }
+          .stg-export > button { flex: 1 1 0; }
           .stg-filter-bar .seg { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
           .stg-filter-bar .seg button { white-space: normal; padding: 8px; }
           .stg-tiles { grid-template-columns: 1fr 1fr; }

@@ -9,7 +9,7 @@ import {
   type DayStat, type Metrics, type SellerRow, type StangsData,
 } from '@/app/lib/stangsCalc';
 import { COMPANY_COLORS, fmtInt } from '@/app/lib/format';
-import { buildWorkbook, downloadBuffer, exportedAt, type XSheet } from '@/app/lib/xlsx';
+import { buildWorkbook, downloadBuffer, exportedAt, type XCell, type XSheet } from '@/app/lib/xlsx';
 import { closeLoading, showError, showLoading, showToast } from '@/app/components/Loading';
 import type { DayStore } from '@/app/dashboard/stangs/day/route';
 
@@ -141,67 +141,191 @@ export default function StangsBoard({ data }: { data: StangsData }) {
   const actionText = (r: SellerRow) => (r.workDays === 0 ? 'ไม่มีข้อมูลเข้าพบ — ตรวจสอบการใช้แอป STANGS'
     : r.problems.length ? r.problems.slice(0, 2).map((p) => NEXT_ACTION[p.key]).join(' · ') : 'รักษามาตรฐาน');
 
-  // ── Excel (ตามตัวกรอง) ──
-  const exportExcel = async () => {
-    showLoading('กำลังทำไฟล์ Excel', 'รอสักครู่');
+  // ── Excel: scope 'filter' = เซลล์ตามตัวกรองที่เลือก · 'all' = ทุกเซลล์ในช่วงวันที่ (ไม่สนตัวกรองอื่น) ──
+  const exportExcel = async (scope: 'filter' | 'all') => {
+    showLoading('กำลังทำไฟล์ Excel', scope === 'all' ? 'ทุกเซลล์ในช่วงวันที่ที่เลือก' : 'ตามตัวกรองที่เลือก');
     try {
+      const rowsX = scope === 'all' ? sellerRows(data, data.sellers, from, to) : rows;
+      const tX = totals(rowsX);
+      const sellerSet = new Set(rowsX.map((r) => r.seller));
+      const filterText = scope === 'all' ? 'ทั้งหมด (ไม่ใช้ตัวกรอง)'
+        : [co, branch, princ && `Princ ${princ}`, manager && `Manager ${manager}`, sup && `Sup ${sup}`, seller && `เซลล์ ${seller}`, onlyIssue && 'เฉพาะคนที่มีปัญหา'].filter(Boolean).join(' · ') || 'ทั้งหมด';
       const info: [string, string][] = [
         ['ช่วงวันที่', `${rangeText}${toDateText ? ` · ${toDateText}` : ''}`],
-        ['ตัวกรอง', [co, branch, princ && `Princ ${princ}`, manager && `Manager ${manager}`, sup && `Sup ${sup}`, seller && `เซลล์ ${seller}`, onlyIssue && 'เฉพาะคนที่มีปัญหา'].filter(Boolean).join(' · ') || 'ทั้งหมด'],
+        ['ตัวกรอง', filterText],
+        ['จำนวนเซลล์', `${rowsX.length} คน`],
         ['Export เมื่อ', exportedAt()],
       ];
+      const nm = new Map(data.sellers.map((s) => [s.seller, s]));
+      const pctN = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : null);
+
+      // 1) Summary — 3 แถบ + วิธีคำนวณ
+      const issue = (k: string) => ISSUES.find((x) => x.key === k)!;
+      const sumRows: XCell[][] = [
+        ['01 KPI COMPLIANCE', null, null],
+        ['Planned Stores (Full Trip)', tX.plannedTrip, 'ร้านตามแผนเยี่ยม (tab Visit) ทุกวันในช่วงที่เลือก'],
+        ['Planned Stores ถึงวันข้อมูลล่าสุด', tX.plannedToDate, 'แผนตั้งแต่ต้นช่วงถึงวันที่มีข้อมูลเข้าพบล่าสุด'],
+        ['Actual Visits', tX.visits, 'จำนวนครั้งที่เข้าพบจริงทั้งหมด รวมโยก / นอกแผน (tab Compliance)'],
+        ['Plan Compliance %', pctN(tX.planVisited, tX.plannedToDate) == null ? null : `${pctN(tX.planVisited, tX.plannedToDate)}%`, 'ร้านในแผนที่เข้าพบจริงในวันเดียวกัน ÷ แผนถึงวันข้อมูลล่าสุด'],
+        ['Missed Visits', tX.missed, 'แผนถึงวันข้อมูลล่าสุด − ร้านในแผนที่เข้าพบจริง'],
+        ['Adhoc Visits', tX.adhoc, 'เข้าพบที่ Adhoc Route = yes'],
+        [`มาตรฐานแผนทริป`, planStd, `${PLAN_RULE.perTrip} ร้าน / ทริป (ตามสัดส่วนวันถ้าเลือกไม่เต็มทริป)`],
+        ['02 SALES PERFORMANCE', null, null],
+        ['Active Store (ร้านไม่ซ้ำ)', tX.buyingStores, 'ร้านที่มีบิล 1 ร้านนับ 1 ไม่ว่าซื้อกี่บิล / กี่วัน (vw_lg014)'],
+        ['ร้านซื้อเฉลี่ย / วัน', tX.billDays ? (tX.buyStoreDays / tX.billDays).toFixed(1) : null, 'ร้านที่มีบิลแต่ละวันรวมกัน ÷ วันที่มีบิล'],
+        ['Total Bills', tX.bills, 'จำนวนบิลขาย'],
+        ['Total Sales (GIV)', Math.round(tX.sales), 'ยอดก่อนหักส่วนลด'],
+        ['NIV', Math.round(tX.niv), 'ยอดสุทธิ'],
+        ['SKU per Bill', tX.bills ? (tX.lines / tX.bills).toFixed(2) : null, 'บรรทัดสินค้า ÷ บิล'],
+        ['Baht per Bill', tX.bills ? Math.round(tX.sales / tX.bills) : null, 'GIV ÷ บิล'],
+        ['03 ISSUE MONITORING', null, null],
+        ...(['lateStart', 'earlyFinish', 'shortHours', 'shortVisits', 'farCheckin'] as const).map((k): XCell[] => [
+          `${issue(k).short} · ${issue(k).label}`, tX[k], `${issue(k).rule} (นับเป็น${issue(k).unit})`,
+        ]),
+        ['Total Issues', rowsX.reduce((n, r) => n + r.totalIssues, 0), 'รวม 5 ข้อด้านบน'],
+      ];
+      // สรุปรายสาขา
+      const byBranch = new Map<string, SellerRow[]>();
+      for (const r of rowsX) { const k = `${r.company}|${r.branch}`; byBranch.set(k, [...(byBranch.get(k) ?? []), r]); }
       const sheets: XSheet[] = [{
+        name: 'Summary', title: 'SALES KPI & COMPLIANCE · STANGS · SUMMARY', info,
+        cols: [{ header: 'หัวข้อ', width: 40 }, { header: 'ค่า', width: 18, fmt: 'int' }, { header: 'วิธีคำนวณ', width: 80 }],
+        band: (r) => r[1] == null && r[2] == null,
+        rows: sumRows,
+        notes: [
+          'เยี่ยม = ร้านอยู่ในแผนของวันนั้น · โยก = ร้านอยู่ในแผนของเซลล์คนนี้แต่เป็นแผนของวันอื่น (มาเยี่ยมคนละวันกับแผน) · นอกแผน = ร้านไม่อยู่ในแผนของเซลล์คนนี้เลยทั้งทริป',
+          ...NOTES,
+        ],
+      }, {
+        name: 'สรุปรายสาขา', title: 'สรุปรายบริษัท × สาขา', info,
+        cols: [
+          { header: 'บริษัท', width: 9 }, { header: 'สาขา', width: 8 }, { header: 'เซลล์', width: 8, fmt: 'int' },
+          { header: 'Planned (ทริป)', width: 12, fmt: 'int' }, { header: 'Actual Visits', width: 11, fmt: 'int' }, { header: 'Plan Compliance %', width: 12, fmt: 'pct' },
+          { header: 'Missed', width: 9, fmt: 'int' }, { header: 'Adhoc', width: 9, fmt: 'int' }, { header: 'Active Store', width: 11, fmt: 'int' },
+          { header: 'บิล', width: 9, fmt: 'int' }, { header: 'GIV', width: 14, fmt: 'int', bar: true }, { header: 'NIV', width: 14, fmt: 'int' },
+          { header: 'Late Start', width: 9, fmt: 'int' }, { header: 'Early Finish', width: 9, fmt: 'int' }, { header: 'Short Hours', width: 9, fmt: 'int' },
+          { header: 'Quick Visits', width: 9, fmt: 'int' }, { header: 'Far Check-in', width: 10, fmt: 'int' }, { header: 'Total Issues', width: 10, fmt: 'int', bar: true },
+        ],
+        coColor: 0,
+        rows: [...byBranch.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, list]) => {
+          const m = totals(list);
+          return [k.split('|')[0], k.split('|')[1], list.length, m.plannedTrip, m.visits, pctN(m.planVisited, m.plannedToDate), m.missed, m.adhoc,
+            m.buyingStores, m.bills, Math.round(m.sales), Math.round(m.niv), m.lateStart, m.earlyFinish, m.shortHours, m.shortVisits, m.farCheckin,
+            list.reduce((n, r) => n + r.totalIssues, 0)];
+        }),
+      }];
+
+      // 2) Seller Monitoring
+      sheets.push({
         name: 'Seller Monitoring', title: 'SALES KPI & COMPLIANCE · STANGS', info,
         cols: [
           { header: 'Rank', width: 6, fmt: 'int' }, { header: 'Company', width: 9 }, { header: 'Branch', width: 8 }, { header: 'Principal', width: 9 },
           { header: 'Supervisor Manager', width: 22 }, { header: 'Supervisor', width: 22 }, { header: 'Seller', width: 10 }, { header: 'ชื่อเซลล์', width: 24 },
           { header: 'Working Day (จริง)', width: 9, fmt: 'int' }, { header: 'Working Day (วันตามแผน)', width: 10, fmt: 'int' },
           { header: 'Avg Start', width: 9 }, { header: 'Avg Finish', width: 9 }, { header: 'Avg Work Hours', width: 10 }, { header: 'Avg Store Hours', width: 10 },
-          { header: 'Planned Stores (Full Trip)', width: 12, fmt: 'int' }, { header: `แผนเทียบมาตรฐาน (${PLAN_RULE.perTrip}/เดือน)`, width: 18 }, { header: 'Actual Visits', width: 10, fmt: 'int' }, { header: 'Plan Compliance %', width: 11, fmt: 'pct' },
-          { header: 'Missed Visits', width: 10, fmt: 'int' }, { header: 'Adhoc Visits', width: 10, fmt: 'int' },
-          { header: 'Active Store (ร้านไม่ซ้ำ)', width: 11, fmt: 'int' }, { header: 'Total Bills', width: 10, fmt: 'int' }, { header: 'Total Sales (GIV)', width: 14, fmt: 'int', bar: true }, { header: 'NIV', width: 14, fmt: 'int' },
+          { header: 'เยี่ยม / วัน', width: 9, fmt: 'dec1' },
+          { header: 'Planned Stores (Full Trip)', width: 12, fmt: 'int' }, { header: `แผนเทียบมาตรฐาน (${PLAN_RULE.perTrip}/ทริป)`, width: 18 }, { header: 'Actual Visits', width: 10, fmt: 'int' },
+          { header: 'เยี่ยมตามแผน', width: 10, fmt: 'int' }, { header: 'Plan Compliance %', width: 11, fmt: 'pct' }, { header: 'Missed Visits', width: 10, fmt: 'int' }, { header: 'Adhoc Visits', width: 10, fmt: 'int' },
+          { header: 'Active Store (ร้านไม่ซ้ำ)', width: 11, fmt: 'int' }, { header: 'ร้านซื้อ / วัน', width: 10, fmt: 'dec1' }, { header: 'Total Bills', width: 10, fmt: 'int' },
+          { header: 'Total Sales (GIV)', width: 14, fmt: 'int', bar: true }, { header: 'NIV', width: 14, fmt: 'int' },
           { header: 'SKU per Bill', width: 9, fmt: 'dec1' }, { header: 'Baht per Bill', width: 10, fmt: 'int' },
-          { header: 'Late Start', width: 9, fmt: 'int' }, { header: 'Early Finish', width: 9, fmt: 'int' }, { header: 'Short Hours', width: 9, fmt: 'int' },
-          { header: 'Quick Visits (< 10 นาที)', width: 10, fmt: 'int' }, { header: 'Far Check-in', width: 10, fmt: 'int' },
+          { header: 'Late Start (วัน)', width: 9, fmt: 'int' }, { header: 'Early Finish (วัน)', width: 9, fmt: 'int' }, { header: 'Short Hours (วัน)', width: 9, fmt: 'int' },
+          { header: 'Quick Visits (ครั้ง)', width: 10, fmt: 'int' }, { header: 'Far Check-in (ครั้ง)', width: 10, fmt: 'int' },
           { header: 'Total Issues', width: 10, fmt: 'int', bar: true }, { header: 'Main Problem', width: 44 }, { header: 'Next Action', width: 52 },
         ],
         coColor: 1,
-        rows: rows.map((r, i) => [
+        rows: rowsX.map((r, i) => [
           i + 1, r.company, r.branch, r.principal, r.manager, r.supervisor, r.seller, r.name || null, r.workDays, r.planDays,
-          hhmm(r.avgStart), hhmm(r.avgFinish), hhmm(r.avgWork), hhmm(r.avgStore),
-          r.plannedTrip, r.plannedTrip ? PLAN_LEVEL_LABEL[planOf(r).level] : 'ไม่มีแผน', r.visits, pct(r.planVisited, r.plannedToDate), r.missed, r.adhoc,
-          r.buyingStores, r.bills, Math.round(r.sales), Math.round(r.niv), r.bills ? Math.round((r.lines / r.bills) * 10) / 10 : null, r.bills ? Math.round(r.sales / r.bills) : null,
+          hhmm(r.avgStart), hhmm(r.avgFinish), hhmm(r.avgWork), hhmm(r.avgStore), r.workDays ? Math.round((r.visits / r.workDays) * 10) / 10 : null,
+          r.plannedTrip, r.plannedTrip ? PLAN_LEVEL_LABEL[planOf(r).level] : 'ไม่มีแผน', r.visits, r.planVisited, pctN(r.planVisited, r.plannedToDate), r.missed, r.adhoc,
+          r.buyingStores, r.billDays ? Math.round((r.buyStoreDays / r.billDays) * 10) / 10 : null, r.bills, Math.round(r.sales), Math.round(r.niv),
+          r.bills ? Math.round((r.lines / r.bills) * 10) / 10 : null, r.bills ? Math.round(r.sales / r.bills) : null,
           r.lateStart, r.earlyFinish, r.shortHours, r.shortVisits, r.farCheckin, r.totalIssues, problemText(r), actionText(r),
         ]),
         notes: NOTES,
-      }];
-      if (picked) {
-        sheets.push({
-          name: `รายวัน ${picked.seller}`, title: `${picked.seller} ${picked.name} · รายวัน`, info,
-          cols: [
-            { header: 'วันที่', width: 12 }, { header: 'เข้าร้านแรก', width: 10 }, { header: 'ออกร้านสุดท้าย', width: 11 }, { header: 'ชม.ทำงาน', width: 9 },
-            { header: 'เวลาในร้าน', width: 9 }, { header: 'แผน', width: 8, fmt: 'int' }, { header: 'เยี่ยม', width: 8, fmt: 'int' }, { header: 'ตามแผน', width: 8, fmt: 'int' },
-            { header: 'Adhoc', width: 8, fmt: 'int' }, { header: 'เยี่ยมสั้น', width: 9, fmt: 'int' }, { header: 'เช็คอินไกล', width: 10, fmt: 'int' },
-            { header: 'บิล', width: 8, fmt: 'int' }, { header: 'ยอดขาย', width: 12, fmt: 'int', bar: true }, { header: 'ปัญหาของวัน', width: 34 },
-          ],
-          rows: days.map((x) => [
-            `${weekday(x.d)} ${dThai(x.d)}`, hhmm(x.start), hhmm(x.end), hhmm(x.work), x.start == null ? null : hhmm(x.store),
-            x.planned, x.visits, x.planVisited, x.adhoc, x.shortVisits, x.farCheckin, x.bills, Math.round(x.giv),
-            [x.late && 'เริ่มสาย', x.early && 'เลิกเร็ว', x.shortHrs && 'ชม.น้อย'].filter(Boolean).join(' · ') || null,
-          ]),
-        });
-        const vs = data.visits.filter((v) => v.s === picked.seller && v.d >= from && v.d <= to).sort((a, b) => a.d.localeCompare(b.d) || (a.start ?? 0) - (b.start ?? 0));
-        sheets.push({
-          name: `การเข้าพบ ${picked.seller}`, title: `${picked.seller} ${picked.name} · การเข้าพบรายร้าน`, info,
-          cols: [
-            { header: 'วันที่', width: 12 }, { header: 'เข้า', width: 8 }, { header: 'ออก', width: 8 }, { header: 'นาที', width: 7, fmt: 'int' },
-            { header: 'รหัสร้าน', width: 16 }, { header: 'ชื่อร้าน', width: 30 }, { header: 'ห่างพิกัดร้าน (ม.)', width: 13, fmt: 'int' },
-            { header: 'Compliance', width: 11 }, { header: 'Adhoc', width: 8 }, { header: 'สถานะ', width: 22 },
-          ],
-          rows: vs.map((v) => [dThai(v.d), hhmm(v.start), hhmm(v.end), v.dur, v.store, v.storeName || null, v.diff, v.comp == null ? null : v.comp ? 'yes' : 'no', v.adhoc ? 'yes' : 'no', v.status || null]),
-        });
+      });
+
+      // 3) รายวัน ทุกเซลล์ × ทุกวัน
+      const visitsX = data.visits.filter((v) => sellerSet.has(v.s) && v.d >= from && v.d <= to);
+      const vCount = new Map<string, { moved: number; adhoc: number }>();
+      for (const v of visitsX) { const k = `${v.s}|${v.d}`; const c = vCount.get(k) ?? { moved: 0, adhoc: 0 }; if (v.pt === 'moved') c.moved++; if (v.pt === 'adhoc') c.adhoc++; vCount.set(k, c); }
+      sheets.push({
+        name: 'รายวัน', title: 'รายวัน · ทุกเซลล์', info,
+        cols: [
+          { header: 'บริษัท', width: 8 }, { header: 'สาขา', width: 7 }, { header: 'Princ', width: 8 }, { header: 'เซลล์', width: 10 }, { header: 'ชื่อเซลล์', width: 22 },
+          { header: 'วันที่', width: 13 }, { header: 'เข้าร้านแรก', width: 10 }, { header: 'ออกร้านสุดท้าย', width: 11 }, { header: 'ชม.ทำงาน', width: 9 }, { header: 'เวลาในร้าน', width: 9 },
+          { header: 'แผน', width: 7, fmt: 'int' }, { header: 'เยี่ยมทั้งหมด', width: 9, fmt: 'int' }, { header: 'ตามแผน', width: 8, fmt: 'int' }, { header: 'โยก', width: 7, fmt: 'int' }, { header: 'นอกแผน', width: 8, fmt: 'int' },
+          { header: 'เยี่ยมเร็วเกินไป', width: 10, fmt: 'int' }, { header: 'เช็คอินไกลร้าน', width: 10, fmt: 'int' },
+          { header: 'บิล', width: 7, fmt: 'int' }, { header: 'ร้านที่ซื้อ', width: 9, fmt: 'int' }, { header: 'GIV', width: 12, fmt: 'int', bar: true }, { header: 'ปัญหาของวัน', width: 30 },
+        ],
+        coColor: 0,
+        rows: rowsX.flatMap((r) => dayStats(data, r.seller, from, to).map((x): XCell[] => {
+          const c = vCount.get(`${r.seller}|${x.d}`) ?? { moved: 0, adhoc: 0 };
+          return [r.company, r.branch, r.principal, r.seller, r.name || null, `${weekday(x.d)} ${dThai(x.d)}`,
+            x.start == null ? null : hhmm(x.start), x.end == null ? null : hhmm(x.end), x.work == null ? null : hhmm(x.work), x.start == null ? null : hhmm(x.store),
+            x.planned, x.visits, x.planVisited, c.moved, c.adhoc, x.shortVisits, x.farCheckin, x.bills, x.storeDays, Math.round(x.giv),
+            [x.late && 'เริ่มสาย', x.early && 'เลิกก่อนเวลา', x.shortHrs && 'ชม.น้อย'].filter(Boolean).join(' · ') || null];
+        })),
+      });
+
+      // 4) การเข้าพบรายร้าน + ยอดขายของร้านวันนั้น (เลือกเซลล์คนเดียว → มีเลขที่ invoice / SKU)
+      const saleOf = new Map<string, { b: number; g: number; n: number; l: number }>();
+      for (const s of data.sales) {
+        if (!sellerSet.has(s.s) || s.d < from || s.d > to) continue;
+        const k = `${s.s}|${s.d}|${s.c}`; const x = saleOf.get(k) ?? { b: 0, g: 0, n: 0, l: 0 };
+        x.b += s.b; x.g += s.g; x.n += s.n; x.l += s.l; saleOf.set(k, x);
       }
-      downloadBuffer(await buildWorkbook(sheets), `STANGS-KPI-Compliance-${from}_${to}${seller ? `-${seller}` : ''}.xlsx`);
+      const inv = new Map<string, { docs: string; skus: number }>();
+      if (rowsX.length === 1) {
+        const one = rowsX[0];
+        const dates = [...new Set(visitsX.map((v) => v.d)), ...new Set(data.sales.filter((s) => s.s === one.seller && s.d >= from && s.d <= to).map((s) => s.d))];
+        for (const d of [...new Set(dates)].sort()) {
+          const r = await fetch(`/dashboard/stangs/day?${new URLSearchParams({ company: one.company, seller: one.seller, d })}`);
+          if (!r.ok) continue;
+          const j = (await r.json()) as { stores: DayStore[] };
+          for (const st of j.stores) inv.set(`${one.seller}|${d}|${st.store}`, { docs: st.docs.map((x) => `${x.credit ? 'ลดหนี้ ' : ''}${x.no}`).join(', '), skus: st.skus });
+        }
+      }
+      const withInv = rowsX.length === 1;
+      sheets.push({
+        name: 'การเข้าพบรายร้าน', title: 'การเข้าพบรายร้าน (tab Compliance) + ยอดขายของร้านวันนั้น', info,
+        cols: [
+          { header: 'บริษัท', width: 8 }, { header: 'สาขา', width: 7 }, { header: 'เซลล์', width: 10 }, { header: 'ชื่อเซลล์', width: 20 }, { header: 'วันที่', width: 12 },
+          { header: 'เข้า', width: 7 }, { header: 'ออก', width: 7 }, { header: 'นาที', width: 7, fmt: 'int' }, { header: 'รหัสร้าน', width: 16 }, { header: 'ชื่อร้าน', width: 28 },
+          { header: 'ประเภท', width: 9 }, { header: 'ห่างพิกัดร้าน (ม.)', width: 12, fmt: 'int' }, { header: 'Compliance', width: 10 }, { header: 'สถานะ', width: 20 },
+          { header: 'ขายได้', width: 8 }, { header: 'บิล', width: 6, fmt: 'int' }, { header: 'GIV', width: 11, fmt: 'int' }, { header: 'NIV', width: 11, fmt: 'int' },
+          ...(withInv ? [{ header: 'SKU', width: 6, fmt: 'int' as const }, { header: 'เลขที่เอกสาร', width: 34 }] : [{ header: 'บรรทัดสินค้า', width: 10, fmt: 'int' as const }]),
+        ],
+        coColor: 0,
+        rows: [...visitsX].sort((a, b) => a.s.localeCompare(b.s) || a.d.localeCompare(b.d) || (a.start ?? 0) - (b.start ?? 0)).map((v): XCell[] => {
+          const s = nm.get(v.s); const sale = saleOf.get(`${v.s}|${v.d}|${v.store}`); const iv = inv.get(`${v.s}|${v.d}|${v.store}`);
+          return [s?.company ?? null, s?.branch ?? null, v.s, s?.name || null, dThai(v.d), hhmm(v.start), hhmm(v.end), v.dur, v.store, v.storeName || null,
+            PLAN_TYPE_LABEL[v.pt], v.diff == null ? null : Math.round(v.diff), v.comp == null ? null : v.comp ? 'yes' : 'no', v.status || null,
+            sale && sale.b > 0 ? 'ขายได้' : 'ไม่ได้ขาย', sale?.b ?? null, sale ? Math.round(sale.g) : null, sale ? Math.round(sale.n) : null,
+            ...(withInv ? [iv?.skus ?? null, iv?.docs ?? null] : [sale?.l ?? null])];
+        }),
+        notes: [
+          'ประเภท: เยี่ยม = ร้านในแผนวันนั้น · โยก = ร้านในแผนของเซลล์คนนี้แต่เป็นวันอื่น · นอกแผน = ร้านไม่อยู่ในแผนของเซลล์คนนี้ทั้งทริป',
+          withInv ? 'SKU = รหัสสินค้าไม่ซ้ำที่ขายได้ในวันนั้น (ไม่นับของแถม / ใบลดหนี้) · เลขที่เอกสารจาก vw_lg014' : 'เลือกเซลล์คนเดียวแล้ว Export อีกครั้ง จะได้เลขที่ invoice และจำนวน SKU รายร้านด้วย',
+        ],
+      });
+
+      // 5) บิลที่ไม่มีการเข้าพบในวันนั้น
+      const visited = new Set(visitsX.map((v) => `${v.s}|${v.d}|${v.store}`));
+      sheets.push({
+        name: 'บิลไม่มีการเข้าพบ', title: 'ร้านที่มีบิลขาย แต่วันนั้นไม่มีการเข้าพบใน STANGS', info,
+        cols: [
+          { header: 'บริษัท', width: 8 }, { header: 'สาขา', width: 7 }, { header: 'เซลล์', width: 10 }, { header: 'ชื่อเซลล์', width: 20 }, { header: 'วันที่', width: 12 },
+          { header: 'รหัสร้าน', width: 18 }, { header: 'บิล', width: 6, fmt: 'int' }, { header: 'GIV', width: 12, fmt: 'int', bar: true }, { header: 'NIV', width: 12, fmt: 'int' },
+        ],
+        coColor: 0,
+        rows: [...saleOf.entries()].filter(([k, x]) => x.b > 0 && !visited.has(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]): XCell[] => {
+          const [sCode, d, store] = k.split('|'); const s = nm.get(sCode);
+          return [s?.company ?? null, s?.branch ?? null, sCode, s?.name || null, dThai(d), store, x.b, Math.round(x.g), Math.round(x.n)];
+        }),
+      });
+
+      downloadBuffer(await buildWorkbook(sheets), `STANGS-KPI-Compliance-${scope === 'all' ? 'ทั้งหมด' : 'ตามfilter'}-${from}_${to}${scope === 'filter' && seller ? `-${seller}` : ''}.xlsx`);
       closeLoading();
       showToast('ดาวน์โหลดไฟล์ Excel แล้ว');
     } catch (err) {
@@ -257,7 +381,10 @@ export default function StangsBoard({ data }: { data: StangsData }) {
             {onlyIssue ? '✓ ' : ''}เฉพาะคนที่มีปัญหา
           </button>
           <button type="button" className="clear-btn" onClick={reset}>ล้างตัวกรอง</button>
-          <button type="button" className="btn btn-primary stg-export" onClick={exportExcel} disabled={!rows.length}>Export Excel</button>
+          <span className="stg-export">
+            <button type="button" className="btn btn-primary" onClick={() => exportExcel('filter')} disabled={!rows.length} title="เฉพาะเซลล์ตามตัวกรองที่เลือก">Excel ตาม filter</button>
+            <button type="button" className="clear-btn" onClick={() => exportExcel('all')} title="ทุกเซลล์ในช่วงวันที่ที่เลือก ไม่ใช้ตัวกรองอื่น">Excel ทั้งหมด</button>
+          </span>
         </div>
         <p className="stg-filter-note">
           {data.fromDb ? `ข้อมูลใน Supabase ${dThai(data.minDate)} – ${dThai(data.maxDate)}` : 'อ่านจาก Google Sheet โดยตรง (ยังไม่ได้รัน supabase/stangs.sql)'} · ช่วงที่เลือก {rangeText} ·
