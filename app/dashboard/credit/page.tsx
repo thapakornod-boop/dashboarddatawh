@@ -74,8 +74,9 @@ export default async function CreditPage({
       const i = rangeMonths.indexOf(r.ym);
       if (i < 0) continue;
       let s = map.get(r.cardcode);
-      if (!s) map.set(r.cardcode, (s = { cardcode: r.cardcode, name: r.name, giv: rangeMonths.map(() => 0), total: 0, active: 0, bills: 0 }));
+      if (!s) map.set(r.cardcode, (s = { cardcode: r.cardcode, name: r.name, giv: rangeMonths.map(() => 0), billsM: rangeMonths.map(() => 0), total: 0, active: 0, bills: 0 }));
       s.giv[i] += r.giv;
+      s.billsM![i] += r.bills;
       s.bills = (s.bills ?? 0) + r.bills;
       s.total += r.giv;
     }
@@ -209,7 +210,7 @@ export default async function CreditPage({
                   </tbody>
                 </table>
 
-                <h4 className="cg-title">รายร้าน · ช่องสี = เดือนที่ซื้อ (ยิ่งเข้มยอดยิ่งมาก) · ช่องว่าง = ไม่ซื้อ</h4>
+                <h4 className="cg-title">รายร้าน · แต่ละช่อง = GIV และจำนวนบิลของเดือนนั้น (ยิ่งเข้มยอดยิ่งมาก) · ช่องว่าง = ไม่ซื้อ</h4>
                 <CreditStoreGrid stores={stores} months={rangeMonths} />
               </DetailModal>
             )}

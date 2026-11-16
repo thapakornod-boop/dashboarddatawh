@@ -3,10 +3,11 @@
 // ร้านของเซลล์เครดิตคนหนึ่ง: 1 แถว = 1 ร้าน, 1 ช่อง = 1 เดือน (มียอด = สีเข้มตามยอด / ไม่ซื้อ = ช่องว่าง)
 // ดูได้ทันทีว่าร้านไหนซื้อประจำทุกเดือน ร้านไหนซื้อ ๆ หาย ๆ
 import { useMemo, useState } from 'react';
-import { fmtInt, fmtShort } from '@/app/lib/format';
+import { fmtInt } from '@/app/lib/format';
 import { monthAbbr } from '@/app/lib/period';
 
-export type CreditStore = { cardcode: string; name: string; giv: number[]; total: number; active: number; bills?: number };
+// giv / billsM = ค่ารายเดือน (ลำดับตาม months)
+export type CreditStore = { cardcode: string; name: string; giv: number[]; billsM?: number[]; total: number; active: number; bills?: number };
 type Filter = 'all' | 'every' | 'some' | 'lost';
 const FIRST = 40;
 
@@ -41,7 +42,7 @@ export default function CreditStoreGrid({ stores, months }: { stores: CreditStor
   ];
 
   return (
-    <div className="cg">
+    <div className={`cg${n > 6 ? ' cg-wide' : ''}`}>
       <div className="seg cg-tabs" role="tablist" aria-label="กรองร้าน">
         {tabs.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={filter === t.key} className={filter === t.key ? 'on' : ''}
@@ -64,10 +65,15 @@ export default function CreditStoreGrid({ stores, months }: { stores: CreditStor
                   <b>{s.name || '(ไม่มีชื่อร้าน)'}</b>
                   <span className="code">{s.cardcode}</span>
                 </span>
-                <span className="cg-strip" role="img" aria-label={months.map((m, i) => `${monthAbbr(m)} ${s.giv[i] > 0 ? fmtShort(s.giv[i]) : 'ไม่ซื้อ'}`).join(', ')}>
+                <span className="cg-strip" role="img" aria-label={months.map((m, i) => `${monthAbbr(m)} ${s.giv[i] > 0 ? `${fmtInt(s.giv[i])} บาท ${s.billsM?.[i] ?? 0} บิล` : 'ไม่ซื้อ'}`).join(', ')}>
                   {months.map((m, i) => (
-                    <span key={m} className={`cg-cell l${level(s.giv[i])}`} title={`${monthAbbr(m)} ${m.slice(0, 4)}: ${s.giv[i] ? fmtInt(s.giv[i]) : 'ไม่ซื้อ'}`}>
-                      <span className="cg-v">{s.giv[i] > 0 ? fmtShort(s.giv[i]) : s.giv[i] < 0 ? 'คืน' : ''}</span>
+                    <span key={m} data-m={`${monthAbbr(m)} ${m.slice(2, 4)}`} className={`cg-cell l${level(s.giv[i])}`} title={`${monthAbbr(m)} ${m.slice(0, 4)}: ${s.giv[i] ? `${fmtInt(s.giv[i])} · ${s.billsM?.[i] ?? 0} บิล` : 'ไม่ซื้อ'}`}>
+                      {s.giv[i] !== 0 && (
+                        <span className="cg-v">
+                          <b>{s.giv[i] < 0 ? `คืน ${fmtInt(-s.giv[i])}` : fmtInt(s.giv[i])}</b>
+                          {s.billsM && <small>{fmtInt(s.billsM[i] ?? 0)} บิล</small>}
+                        </span>
+                      )}
                     </span>
                   ))}
                 </span>

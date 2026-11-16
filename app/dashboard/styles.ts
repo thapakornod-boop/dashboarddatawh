@@ -747,19 +747,22 @@ export const DASHBOARD_CSS = `
         .credit-wrap { overflow-x: auto; }
         .credit-table th.c { text-align: center; }
         .credit-mhead { border-bottom: none; font-size: 13px; color: var(--text); }
-        .credit-sub > span { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11.5px; text-align: right; }
-        .credit-table td.credit-a { border-left: 1px solid #EEF1F6; }
+        .credit-table th.credit-sh { font-size: 11.5px; }
+        .credit-table > thead > tr:first-child > th:first-child, .credit-table > tbody > tr > td:first-child { min-width: 230px; }
+        .credit-table td.credit-g { white-space: nowrap; }
+        .credit-table td.credit-g { color: var(--text-2); font-size: 13.5px; }
+        .credit-table td.credit-a, .credit-table th.credit-sh.credit-a { border-left: 1px solid #EEF1F6; }
         .credit-table th.credit-avg, .credit-table td.credit-avg { background: var(--brand-50); }
         .credit-search { flex: 1 1 220px; }
         .credit-search .store-input { flex: none; height: 38px; font-size: 14px; width: 100%; }
         .credit-search { flex: 1 1 220px; max-width: 360px; }
         .credit-count { align-self: center; font-size: 13px; }
-        @container card (max-width: 800px) { .credit-wrap { overflow: visible; } .credit-table td.credit-a { border-left: none; } }
+        @container card (max-width: 800px) { .credit-wrap { overflow: visible; } .credit-table td.credit-a { border-left: none; } .credit-table > tbody > tr > td:first-child { min-width: 0; } }
         .credit-seller { display: grid; gap: 2px; color: var(--text); text-decoration: none; }
         .credit-seller b { color: var(--primary); font-size: 15px; }
         .credit-seller:hover b { text-decoration: underline; }
         .credit-seller .muted { font-size: 12.5px; }
-        .credit-more { justify-self: start; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--primary); border: 1px solid var(--brand-100); background: #F3F7FF; border-radius: 999px; padding: 2px 10px; }
+        .credit-more { white-space: nowrap; justify-self: start; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--primary); border: 1px solid var(--brand-100); background: #F3F7FF; border-radius: 999px; padding: 2px 10px; }
         .credit-seller:hover .credit-more { background: var(--primary); color: #fff; border-color: var(--primary); }
         .dm-backdrop { position: fixed; inset: 0; z-index: 900; background: rgba(15,27,51,.55); display: flex; align-items: center; justify-content: center; padding: 16px; animation: dm-fade .15s ease-out; }
         .dm { background: var(--surface); border-radius: 14px; width: min(1180px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.25); container: card / inline-size; }
@@ -787,18 +790,23 @@ export const DASHBOARD_CSS = `
         .cg-store .code { font-size: 11.5px; color: var(--text-2); }
         .cg-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; }
         .cg-mh { text-align: center; }
-        .cg-cell { height: 28px; border-radius: 5px; background: var(--track); display: grid; place-items: center; min-width: 0; overflow: hidden; }
+        .cg-cell { min-height: 40px; border-radius: 5px; background: var(--track); display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; overflow: hidden; padding: 3px 2px; line-height: 1.2; }
         .cg-cell.l1 { background: #DBE7FE; } .cg-cell.l2 { background: #A9C6FC; } .cg-cell.l3 { background: #5B93F5; color: #fff; } .cg-cell.l4 { background: #1A55C2; color: #fff; }
-        .cg-v { font-size: 11px; font-weight: 600; white-space: nowrap; }
+        .cg-v { display: grid; justify-items: center; font-size: 11.5px; white-space: nowrap; } .cg-v b { font-weight: 700; } .cg-v small { font-size: 10.5px; opacity: .85; }
         .cg-act { color: var(--text-2); }
         .cg-act.full { color: #389E0D; font-weight: 600; }
         .cg-more { width: fit-content; }
+        /* เกิน 6 เดือน: ช่องรายเดือนตัดขึ้นบรรทัดใหม่ มีชื่อเดือนในช่อง (ตัวเลขเต็มอ่านได้) */
+        .cg-wide .cg-headrow .cg-strip { visibility: hidden; }
+        .cg-wide .cg-row .cg-strip { grid-auto-flow: row; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+        .cg-wide .cg-cell::before { content: attr(data-m); font-size: 10px; font-weight: 600; opacity: .7; }
         @container cg (max-width: 640px) {
           .cg-row { grid-template-columns: minmax(0, 1fr) 44px 92px; gap: 4px 10px; }
           .cg-row .cg-strip { grid-column: 1 / -1; grid-row: 2; }
           .cg-headrow { display: none; }
-          .cg-cell { height: 16px; }
-          .cg-v { display: none; }
+          .cg-row .cg-strip { grid-auto-flow: row; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); }
+          .cg-cell { min-height: 38px; }
+          .cg-cell::before { content: attr(data-m); font-size: 10px; font-weight: 600; opacity: .7; }
         }
 
         /* ── แถบเตือนความครบของข้อมูล / หน้าสถานะระบบ ── */

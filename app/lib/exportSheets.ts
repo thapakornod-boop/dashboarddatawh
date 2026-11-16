@@ -58,26 +58,26 @@ export function creditSheets(sellers: CreditSellerX[], months: string[], info: [
   ];
   const id = (s: CreditSellerX): XCell[] => [s.company, s.seller, s.name || null, s.branch || null, s.princ || null];
   const monthly: XSheet = {
-    name: 'Active Store และบิล', title: 'เซลล์เครดิต · Active Store และจำนวนบิลรายเดือน', info,
-    groups: [{ label: '', span: idCols.length }, ...months.map((ym) => ({ label: formatThaiMonth(ym), span: 2 })), { label: 'เฉลี่ย / เดือน', span: 2 }, { label: 'ทั้งช่วง', span: 4 }],
+    name: 'Active Store บิล GIV', title: 'เซลล์เครดิต · Active Store / จำนวนบิล / GIV รายเดือน', info,
+    groups: [{ label: '', span: idCols.length }, ...months.map((ym) => ({ label: formatThaiMonth(ym), span: 3 })), { label: 'เฉลี่ย / เดือน', span: 3 }, { label: 'ทั้งช่วง', span: 4 }],
     cols: [
       ...idCols,
-      ...months.flatMap((ym): XCol[] => [{ header: `Active ${mLabel(ym)}`, fmt: 'int', width: 11 }, { header: `บิล ${mLabel(ym)}`, fmt: 'int', width: 10 }]),
-      { header: 'Active เฉลี่ย', fmt: 'dec1', width: 11 }, { header: 'บิลเฉลี่ย', fmt: 'dec1', width: 10 },
+      ...months.flatMap((ym): XCol[] => [{ header: `Active ${mLabel(ym)}`, fmt: 'int', width: 11 }, { header: `บิล ${mLabel(ym)}`, fmt: 'int', width: 10 }, { header: `GIV ${mLabel(ym)}`, fmt: 'int', width: 14 }]),
+      { header: 'Active เฉลี่ย', fmt: 'dec1', width: 11 }, { header: 'บิลเฉลี่ย', fmt: 'dec1', width: 10 }, { header: 'GIV เฉลี่ย', fmt: 'int', width: 14 },
       { header: 'Active Store ทั้งช่วง', fmt: 'int', width: 14 }, { header: 'บิลต่อร้าน', fmt: 'dec1', width: 11 },
       { header: '% ร้านเดิม', fmt: 'pct', width: 11 }, { header: 'GIV รวม', fmt: 'int', width: 16, bar: true },
     ],
     coColor: 0,
     rows: sellers.map((s) => [
       ...id(s),
-      ...months.flatMap((ym) => [s.months[ym]?.stores ?? null, s.months[ym]?.bills ?? null]),
-      r1(sumM(s, 'stores') / n), r1(sumM(s, 'bills') / n),
+      ...months.flatMap((ym) => [s.months[ym]?.stores ?? null, s.months[ym]?.bills ?? null, s.months[ym] ? r0(s.months[ym].giv) : null]),
+      r1(sumM(s, 'stores') / n), r1(sumM(s, 'bills') / n), r0(s.giv / n),
       s.stores, sumM(s, 'stores') ? r1(s.bills / sumM(s, 'stores')) : null, per(sumM(s, 'repeat'), sumM(s, 'stores')), r0(s.giv),
     ]),
     total: [
       `รวม ${sellers.length} คน`, null, null, null, null,
-      ...months.flatMap((ym) => [sellers.reduce((t, s) => t + (s.months[ym]?.stores ?? 0), 0), sellers.reduce((t, s) => t + (s.months[ym]?.bills ?? 0), 0)]),
-      r1(all.ms / n), r1(all.bills / n), sellers.reduce((t, s) => t + s.stores, 0), all.ms ? r1(all.bills / all.ms) : null, per(all.mr, all.ms), r0(all.giv),
+      ...months.flatMap((ym) => [sellers.reduce((t, s) => t + (s.months[ym]?.stores ?? 0), 0), sellers.reduce((t, s) => t + (s.months[ym]?.bills ?? 0), 0), r0(sellers.reduce((t, s) => t + (s.months[ym]?.giv ?? 0), 0))]),
+      r1(all.ms / n), r1(all.bills / n), r0(all.giv / n), sellers.reduce((t, s) => t + s.stores, 0), all.ms ? r1(all.bills / all.ms) : null, per(all.mr, all.ms), r0(all.giv),
     ],
     notes: creditNotes(months.length),
   };
@@ -100,29 +100,30 @@ export function creditSheets(sellers: CreditSellerX[], months: string[], info: [
 }
 
 // ร้านของเซลล์: 1 แถว = เซลล์ × ร้าน · ยอด GIV รายเดือน
-export type CreditStoreX = { company: string; seller: string; sellerName: string; cardcode: string; name: string; giv: number[]; bills: number };
+export type CreditStoreX = { company: string; seller: string; sellerName: string; cardcode: string; name: string; giv: number[]; billsM?: number[]; bills: number };
 
 export function creditStoreSheet(stores: CreditStoreX[], months: string[], info: [string, string][], title: string): XSheet {
   const n = Math.max(months.length, 1);
   return {
     name: 'รายร้าน', title, info,
+    groups: [{ label: '', span: 5 }, ...months.map((ym) => ({ label: formatThaiMonth(ym), span: 2 })), { label: 'ทั้งช่วง', span: 4 }],
     cols: [
       { header: 'บริษัท', width: 9 }, { header: 'รหัสเซลล์', width: 12 }, { header: 'ชื่อเซลล์', width: 22 },
       { header: 'รหัสร้าน', width: 14 }, { header: 'ชื่อร้าน', width: 34 },
-      ...months.map((ym): XCol => ({ header: mLabel(ym), fmt: 'int', width: 13 })),
+      ...months.flatMap((ym): XCol[] => [{ header: `GIV ${mLabel(ym)}`, fmt: 'int', width: 13 }, { header: `บิล ${mLabel(ym)}`, fmt: 'int', width: 9 }]),
       { header: 'GIV รวม', fmt: 'int', width: 15, bar: true }, { header: 'เฉลี่ย / เดือน', fmt: 'int', width: 13 },
       { header: 'บิล', fmt: 'int', width: 9 }, { header: 'เดือนที่ซื้อ', fmt: 'int', width: 11 },
     ],
     coColor: 0,
     rows: stores.map((s) => {
       const total = s.giv.reduce((a, b) => a + b, 0);
-      return [s.company, s.seller, s.sellerName || null, s.cardcode, s.name || null, ...s.giv.map((v) => (v ? r0(v) : null)), r0(total), r0(total / n), s.bills, s.giv.filter((v) => v > 0).length];
+      return [s.company, s.seller, s.sellerName || null, s.cardcode, s.name || null, ...s.giv.flatMap((v, i) => [v ? r0(v) : null, s.billsM?.[i] || null]), r0(total), r0(total / n), s.bills, s.giv.filter((v) => v > 0).length];
     }),
     total: [`รวม ${stores.length} ร้าน`, null, null, null, null,
-      ...months.map((_, i) => r0(stores.reduce((t, s) => t + s.giv[i], 0))),
+      ...months.flatMap((_, i) => [r0(stores.reduce((t, s) => t + s.giv[i], 0)), stores.reduce((t, s) => t + (s.billsM?.[i] ?? 0), 0)]),
       r0(stores.reduce((t, s) => t + s.giv.reduce((a, b) => a + b, 0), 0)), r0(stores.reduce((t, s) => t + s.giv.reduce((a, b) => a + b, 0), 0) / n),
       stores.reduce((t, s) => t + s.bills, 0), null],
-    notes: ['ช่องว่าง = เดือนนั้นร้านไม่ได้ซื้อจากเซลล์คนนี้', 'เดือนที่ซื้อ = จำนวนเดือนที่มียอด GIV > 0 ในช่วงที่เลือก'],
+    notes: ['ช่องว่าง = เดือนนั้นร้านไม่ได้ซื้อจากเซลล์คนนี้ · บิล = จำนวนครั้งที่ขายในเดือนนั้น', 'เดือนที่ซื้อ = จำนวนเดือนที่มียอด GIV > 0 ในช่วงที่เลือก'],
   };
 }
 

@@ -48,15 +48,16 @@ export async function GET(request: NextRequest) {
         if (i < 0) continue;
         const k = `${co}|${seller}|${code}`;
         let s = map.get(k);
-        if (!s) map.set(k, (s = { company: co, seller, sellerName: sellerName.get(`${co}|${seller}`) ?? '', cardcode: code, name: names.get(`${co}|${code}`) ?? '', giv: rangeMonths.map(() => 0), bills: 0 }));
+        if (!s) map.set(k, (s = { company: co, seller, sellerName: sellerName.get(`${co}|${seller}`) ?? '', cardcode: code, name: names.get(`${co}|${code}`) ?? '', giv: rangeMonths.map(() => 0), billsM: rangeMonths.map(() => 0), bills: 0 }));
         s.giv[i] += Number(giv);
         s.bills += Number(bills);
+        s.billsM![i] += Number(bills);
       }
       const order = new Map(data.sellers.map((s, i) => [s.key, i]));
       const stores = [...map.values()].sort((a, b) =>
         (order.get(`${a.company}|${a.seller}`) ?? 0) - (order.get(`${b.company}|${b.seller}`) ?? 0) ||
         b.giv.reduce((x, y) => x + y, 0) - a.giv.reduce((x, y) => x + y, 0));
-      sheets.push(creditStoreSheet(stores, rangeMonths, info, 'ร้านเครดิต · ร้านของเซลล์ทุกคน (GIV รายเดือน)'));
+      sheets.push(creditStoreSheet(stores, rangeMonths, info, 'ร้านเครดิต · ร้านของเซลล์ทุกคน (GIV และบิล รายเดือน)'));
     }
 
     const buf = await buildWorkbook(sheets);

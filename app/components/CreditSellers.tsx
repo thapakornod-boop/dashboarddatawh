@@ -1,8 +1,8 @@
 'use client';
 
 // ตารางเซลล์เครดิต: ตัวกรอง บริษัท (ทั้งหมดได้) / ค้นหาเซลล์ / Princ
-// คอลัมน์ต่อเดือน: Active Store (ร้านไม่ซ้ำ — ซื้อกี่บิลก็นับ 1) · บิล (ขายกี่ครั้งนับเท่านั้น) · ท้ายตาราง = ค่าเฉลี่ยต่อเดือน + GIV
-import { useMemo, useState } from 'react';
+// คอลัมน์ต่อเดือน: Active Store (ร้านไม่ซ้ำ — ซื้อกี่บิลก็นับ 1) · บิล (ขายกี่ครั้งนับเท่านั้น) · GIV · ท้ายตาราง = ค่าเฉลี่ยต่อเดือน + GIV
+import { Fragment, useMemo, useState } from 'react';
 import { COMPANY_COLORS, fmtInt } from '@/app/lib/format';
 import { monthAbbr } from '@/app/lib/period';
 import LoadingLink from '@/app/components/LoadingLink';
@@ -44,11 +44,11 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
 
   // รวมทุกเซลล์ที่กรอง (Active Store รวม = นับร้านของแต่ละเซลล์รวมกัน)
   const tot = useMemo(() => {
-    const m = Object.fromEntries(months.map((ym) => [ym, { stores: 0, bills: 0 }]));
+    const m = Object.fromEntries(months.map((ym) => [ym, { stores: 0, bills: 0, giv: 0 }]));
     let stores = 0, bills = 0, giv = 0;
     for (const s of list) {
       stores += s.stores; bills += s.bills; giv += s.giv;
-      for (const ym of months) { m[ym].stores += s.months[ym]?.stores ?? 0; m[ym].bills += s.months[ym]?.bills ?? 0; }
+      for (const ym of months) { m[ym].stores += s.months[ym]?.stores ?? 0; m[ym].bills += s.months[ym]?.bills ?? 0; m[ym].giv += s.months[ym]?.giv ?? 0; }
     }
     return { m, stores, bills, giv };
   }, [list, months]);
@@ -66,14 +66,14 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
     const picked = list.find((s) => s.key === pickedKey);
     if (picked && pickedStores?.length) {
       sheets.push(creditStoreSheet(
-        pickedStores.map((x) => ({ company: picked.company, seller: picked.seller, sellerName: picked.name, cardcode: x.cardcode, name: x.name, giv: x.giv, bills: x.bills ?? 0 })),
-        months, info, `ร้านของ ${picked.name || picked.seller} (${picked.company} · ${picked.seller}) · GIV รายเดือน`,
+        pickedStores.map((x) => ({ company: picked.company, seller: picked.seller, sellerName: picked.name, cardcode: x.cardcode, name: x.name, giv: x.giv, billsM: x.billsM, bills: x.bills ?? 0 })),
+        months, info, `ร้านของ ${picked.name || picked.seller} (${picked.company} · ${picked.seller}) · GIV และบิล รายเดือน`,
       ));
     }
     return sheets;
   };
 
-  const avg = (s: CreditSeller, k: 'stores' | 'bills') => months.reduce((t, ym) => t + (s.months[ym]?.[k] ?? 0), 0) / Math.max(n, 1);
+  const avg = (s: CreditSeller, k: 'stores' | 'bills' | 'giv') => months.reduce((t, ym) => t + (s.months[ym]?.[k] ?? 0), 0) / Math.max(n, 1);
 
   return (
     <>
@@ -115,16 +115,18 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
             <thead>
               <tr>
                 <th rowSpan={2}>เซลล์</th>
-                {months.map((ym) => <th key={ym} colSpan={2} className="c credit-mhead">{monthAbbr(ym)} {ym.slice(2, 4)}</th>)}
-                <th colSpan={2} className="c credit-mhead credit-avg">เฉลี่ย / เดือน</th>
+                {months.map((ym) => <th key={ym} colSpan={3} className="c credit-mhead">{monthAbbr(ym)} {ym.slice(2, 4)}</th>)}
+                <th colSpan={3} className="c credit-mhead credit-avg">เฉลี่ย / เดือน</th>
                 <th rowSpan={2} className="r">GIV รวม</th>
                 <th rowSpan={2} className="r">Active Store<br /><small>ทั้งช่วง</small></th>
               </tr>
               <tr>
                 {[...months, 'avg'].map((ym) => (
-                  <th key={ym} colSpan={2} className="credit-sub">
-                    <span><span title="ร้านไม่ซ้ำที่ซื้อ (ซื้อกี่บิลก็นับ 1)">Active</span><span title="จำนวนบิล (ขายกี่ครั้งนับเท่านั้น)">บิล</span></span>
-                  </th>
+                  <Fragment key={ym}>
+                    <th className="r credit-sh credit-a" title="ร้านไม่ซ้ำที่ซื้อ (ซื้อกี่บิลก็นับ 1)">Active</th>
+                    <th className="r credit-sh" title="จำนวนบิล (ขายกี่ครั้งนับเท่านั้น)">บิล</th>
+                    <th className="r credit-sh" title="ยอดขาย GIV ของเดือน">GIV</th>
+                  </Fragment>
                 ))}
               </tr>
             </thead>
@@ -143,10 +145,12 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
                     return [
                       <td key={`${ym}a`} className="r credit-a" data-label={`${monthAbbr(ym)} Active`}>{m ? fmtInt(m.stores) : <span className="muted">–</span>}</td>,
                       <td key={`${ym}b`} className="r credit-b" data-label={`${monthAbbr(ym)} บิล`}>{m ? fmtInt(m.bills) : <span className="muted">–</span>}</td>,
+                      <td key={`${ym}g`} className="r credit-g" data-label={`${monthAbbr(ym)} GIV`}>{m ? fmtInt(m.giv) : <span className="muted">–</span>}</td>,
                     ];
                   })}
                   <td className="r credit-a credit-avg strong" data-label="เฉลี่ย Active">{f1(avg(s, 'stores'))}</td>
                   <td className="r credit-b credit-avg strong" data-label="เฉลี่ย บิล">{f1(avg(s, 'bills'))}</td>
+                  <td className="r credit-g credit-avg strong" data-label="เฉลี่ย GIV">{fmtInt(avg(s, 'giv'))}</td>
                   <td className="r strong" data-label="GIV รวม">{fmtInt(s.giv)}</td>
                   <td className="r" data-label="Active Store ทั้งช่วง">{fmtInt(s.stores)}</td>
                 </tr>
@@ -158,9 +162,11 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
                 {months.map((ym) => [
                   <td key={`${ym}a`} className="r credit-a strong" data-label={`${monthAbbr(ym)} Active`}>{fmtInt(tot.m[ym].stores)}</td>,
                   <td key={`${ym}b`} className="r credit-b strong" data-label={`${monthAbbr(ym)} บิล`}>{fmtInt(tot.m[ym].bills)}</td>,
+                  <td key={`${ym}g`} className="r credit-g strong" data-label={`${monthAbbr(ym)} GIV`}>{fmtInt(tot.m[ym].giv)}</td>,
                 ])}
                 <td className="r credit-a credit-avg strong" data-label="เฉลี่ย Active">{f1(months.reduce((t, ym) => t + tot.m[ym].stores, 0) / Math.max(n, 1))}</td>
                 <td className="r credit-b credit-avg strong" data-label="เฉลี่ย บิล">{f1(months.reduce((t, ym) => t + tot.m[ym].bills, 0) / Math.max(n, 1))}</td>
+                <td className="r credit-g credit-avg strong" data-label="เฉลี่ย GIV">{fmtInt(months.reduce((t, ym) => t + tot.m[ym].giv, 0) / Math.max(n, 1))}</td>
                 <td className="r strong" data-label="GIV รวม">{fmtInt(tot.giv)}</td>
                 <td className="r strong" data-label="Active Store ทั้งช่วง">{fmtInt(tot.stores)}</td>
               </tr>
