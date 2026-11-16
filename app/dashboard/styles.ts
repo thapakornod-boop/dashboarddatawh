@@ -759,6 +759,19 @@ export const DASHBOARD_CSS = `
         .credit-seller b { color: var(--primary); font-size: 15px; }
         .credit-seller:hover b { text-decoration: underline; }
         .credit-seller .muted { font-size: 12.5px; }
+        .credit-more { justify-self: start; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--primary); border: 1px solid var(--brand-100); background: #F3F7FF; border-radius: 999px; padding: 2px 10px; }
+        .credit-seller:hover .credit-more { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .dm-backdrop { position: fixed; inset: 0; z-index: 900; background: rgba(15,27,51,.55); display: flex; align-items: center; justify-content: center; padding: 16px; animation: dm-fade .15s ease-out; }
+        .dm { background: var(--surface); border-radius: 14px; width: min(1180px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.25); container: card / inline-size; }
+        .dm-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+        .dm-close { flex: none; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; font-size: 16px; cursor: pointer; color: var(--text-2); padding: 4px 10px; }
+        .dm-close:hover { background: #F3F7FF; color: var(--primary); }
+        .dm-body { overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px 18px; }
+        @keyframes dm-fade { from { opacity: 0; } to { opacity: 1; } }
+        @media (max-width: 640px) {
+          .dm-backdrop { padding: 0; align-items: stretch; }
+          .dm { border-radius: 0; max-height: 100dvh; height: 100dvh; }
+        }
         .credit-table tr.credit-on td { background: var(--brand-50); }
         .credit-table tfoot td { background: #FAFAFB; }
         .credit-month-table { font-size: 15px; margin-bottom: 8px; }

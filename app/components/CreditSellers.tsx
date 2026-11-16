@@ -132,9 +132,10 @@ export default function CreditSellers({ sellers, months, companies, pickedKey, h
               {list.map((s) => (
                 <tr key={s.key} className={pickedKey === s.key ? 'credit-on' : ''}>
                   <td>
-                    <LoadingLink className="credit-seller" scrollToId="credit-detail" href={hrefFor[s.key]}>
+                    <LoadingLink className="credit-seller" href={hrefFor[s.key]}>
                       <b>{s.name || s.seller}</b>
                       <span className="muted"><span className="dot" style={{ background: COMPANY_COLORS[s.company] }} />{s.company} · {s.seller}{s.branch ? ` · ${s.branch}` : ''}{s.princ ? ` · ${s.princ}` : ''}</span>
+                      <span className="credit-more">ดูรายละเอียด ›</span>
                     </LoadingLink>
                   </td>
                   {months.map((ym) => {

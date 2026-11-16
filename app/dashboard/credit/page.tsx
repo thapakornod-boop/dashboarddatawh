@@ -11,6 +11,7 @@ import { COMPANY_COLORS, fmtInt, fmtShort } from '@/app/lib/format';
 import { LoadingDone } from '@/app/components/Loading';
 import CreditStoreGrid, { type CreditStore } from '@/app/components/CreditStoreGrid';
 import CreditSellers from '@/app/components/CreditSellers';
+import DetailModal from '@/app/components/DetailModal';
 import { Hero, RangeFilter } from '../parts';
 
 const MAX_MONTHS = CREDIT_MAX_MONTHS;
@@ -143,7 +144,7 @@ export default async function CreditPage({
                   <p className="card-sub">
                     <b>Active</b> = จำนวนร้านไม่ซ้ำที่ซื้อ (ร้านเดียวซื้อกี่บิลก็นับ 1) ·
                     <b> บิล</b> = จำนวนครั้งที่ขาย (ร้านเดียวขาย 10 ครั้ง = 10 บิล) ·
-                    <b> เฉลี่ย / เดือน</b> = รวมทุกเดือน ÷ {n} เดือน · กดชื่อเซลล์เพื่อดูรายร้าน ·
+                    <b> เฉลี่ย / เดือน</b> = รวมทุกเดือน ÷ {n} เดือน · กดชื่อเซลล์ หรือ <b>ดูรายละเอียด</b> เพื่อดูรายเดือน / รายร้าน ·
                     เซลล์เครดิต = Channel ในชีตเป็น Credit / MAS หรือรหัส MS / ASM / DSM / CR
                   </p>
                 </div>
@@ -170,18 +171,17 @@ export default async function CreditPage({
               )}
             </section>
 
-            {/* ── เซลล์ที่เลือก: รายเดือน + รายร้าน ── */}
+            {/* ── เซลล์ที่เลือก: รายเดือน + รายร้าน (กล่องลอยกลางจอ) ── */}
             {picked && (
-              <section className="card" id="credit-detail">
-                <header className="card-head">
-                  <div>
-                    <h3 className="card-title">{picked.name || picked.seller} · ร้านที่ขายในแต่ละเดือน</h3>
-                    <p className="card-sub">
-                      <span className="dot" style={{ background: COMPANY_COLORS[picked.company] }} />{picked.company} · {picked.seller}{picked.branch ? ` · ${picked.branch}` : ''} ·
-                      {' '}{fmtInt(picked.stores)} ร้าน · GIV {fmtInt(picked.giv)}
-                    </p>
-                  </div>
-                </header>
+              <DetailModal
+                key={picked.key}
+                closeHref={`?${new URLSearchParams(keep).toString()}`}
+                title={<>{picked.name || picked.seller} · ร้านที่ขายในแต่ละเดือน</>}
+                sub={<>
+                  <span className="dot" style={{ background: COMPANY_COLORS[picked.company] }} />{picked.company} · {picked.seller}{picked.branch ? ` · ${picked.branch}` : ''}{picked.princ ? ` · ${picked.princ}` : ''} ·
+                  {' '}{rangeLabel} · {fmtInt(picked.stores)} ร้าน · {fmtInt(picked.bills)} บิล · GIV {fmtInt(picked.giv)}
+                </>}
+              >
 
                 <table className="rtable credit-month-table">
                   <thead>
@@ -211,7 +211,7 @@ export default async function CreditPage({
 
                 <h4 className="cg-title">รายร้าน · ช่องสี = เดือนที่ซื้อ (ยิ่งเข้มยอดยิ่งมาก) · ช่องว่าง = ไม่ซื้อ</h4>
                 <CreditStoreGrid stores={stores} months={rangeMonths} />
-              </section>
+              </DetailModal>
             )}
           </>
         )}
