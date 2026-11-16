@@ -978,6 +978,24 @@ export const DASHBOARD_CSS = `
         .shot figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--text-2); }
         .shot-btns { display: flex; gap: 8px; }
         .xl-offscreen { position: fixed; left: -10000px; top: 0; pointer-events: none; }
+        .shots.shots-wide { width: min(1400px, 100%); }
+        .shots-wide .shot img { width: auto; max-width: none; }
+        .shots-wide .shot { overflow-x: auto; }
+        /* รูปตาราง STANGS Seller Monitoring (แบบชีต) */
+        .stg-sheet { width: max-content; padding: 16px; background: #fff; color: #000; font-size: 13px; font-variant-numeric: tabular-nums; }
+        .stg-sheet-top { display: flex; gap: 24px; align-items: baseline; margin-bottom: 10px; }
+        .stg-sheet-top b { font-size: 17px; color: #0F2A6B; }
+        .stg-sheet-top span { color: #444; }
+        .stg-sheet table { border-collapse: collapse; }
+        .stg-sheet th, .stg-sheet td { border: 1px solid #BFBFBF; padding: 4px 7px; text-align: right; white-space: nowrap; }
+        .stg-sheet th { background: #0F2A6B; color: #fff; font-weight: 700; font-size: 12px; white-space: normal; max-width: 86px; text-align: center; vertical-align: middle; }
+        .stg-sheet .l { text-align: left; }
+        .stg-sheet td.wrap { white-space: normal; min-width: 260px; max-width: 340px; font-size: 12px; }
+        .stg-sheet tbody tr:nth-child(even) td { background: #F6F8FC; }
+        .stg-sheet td.bad, .stg-sheet tbody tr:nth-child(even) td.bad { background: #FFC7CE; color: #9C0006; }
+        .stg-sheet td.strong { font-weight: 700; }
+        .stg-sheet tfoot td { background: #DDEBF7; font-weight: 700; }
+        .stg-sheet-note { margin: 8px 0 0; font-size: 12px; color: #444; }
         .xl-sheet { width: 760px; padding: 16px; background: #fff; color: #000; font-size: 15px; font-variant-numeric: tabular-nums; }
         .xl-top { display: flex; gap: 40px; margin-bottom: 10px; font-size: 15px; }
         .xl-top span { background: #DDEBF7; border: 1px solid #9BC2E6; padding: 3px 12px; }

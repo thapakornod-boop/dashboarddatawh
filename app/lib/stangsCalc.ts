@@ -71,8 +71,11 @@ export const NEXT_ACTION: Record<string, string> = {
   earlyFinish: 'ทำรูทช่วงบ่ายให้ถึง 15:30',
 };
 
-export const hhmm = (m: number | null) =>
-  m == null ? '—' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m % 60)).padStart(2, '0')}`;
+export const hhmm = (m: number | null) => {
+  if (m == null) return '—';
+  const r = Math.round(m); // ปัดเป็นนาทีก่อน (กัน 08:59.6 → "08:60")
+  return `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
+};
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 

@@ -9,6 +9,7 @@ import {
   type DayStat, type Metrics, type SellerRow, type StangsData,
 } from '@/app/lib/stangsCalc';
 import { COMPANY_COLORS, fmtInt } from '@/app/lib/format';
+import StangsShot from '@/app/components/StangsShot';
 import { buildWorkbook, downloadBuffer, exportedAt, type XCell, type XSheet } from '@/app/lib/xlsx';
 import { closeLoading, showError, showLoading, showToast } from '@/app/components/Loading';
 import type { DayStore } from '@/app/dashboard/stangs/day/route';
@@ -383,6 +384,14 @@ export default function StangsBoard({ data }: { data: StangsData }) {
           <span className="stg-export">
             <button type="button" className="btn btn-primary" onClick={() => exportExcel('filter')} disabled={!rows.length} title="เฉพาะเซลล์ตามตัวกรองที่เลือก">Excel ตาม filter</button>
             <button type="button" className="clear-btn" onClick={() => exportExcel('all')} title="ทุกเซลล์ในช่วงวันที่ที่เลือก ไม่ใช้ตัวกรองอื่น">Excel ทั้งหมด</button>
+            <StangsShot
+              rows={rows}
+              title={`STANGS · Seller Monitoring · ${rangeText}`}
+              sub={`${[co, branch, princ && `Princ ${princ}`, manager, sup && sup !== manager ? sup : '', seller, onlyIssue && 'เฉพาะคนที่มีปัญหา'].filter(Boolean).join(' · ') || 'ทุกเซลล์'} · ${rows.length} คน${toDateText ? ` · ${toDateText}` : ''}`}
+              fileTag={`${from}_${to}`}
+              problemText={problemText}
+              actionText={actionText}
+            />
           </span>
         </div>
         <p className="stg-filter-note">
